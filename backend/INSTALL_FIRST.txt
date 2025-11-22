@@ -1,0 +1,124 @@
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║  🚀 BIBLIOTEKA - PIERWSZE KROKI (WINDOWS)                      ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+
+MASZ PROBLEMY Z INSTALACJĄ? 
+Przeczytaj ten plik NAJPIERW! ⬇️
+
+════════════════════════════════════════════════════════════════
+
+📋 KROK 1: Otwórz projekt w VS Code
+
+1. Uruchom VS Code
+2. File → Open Folder → wybierz folder BIBLIOTEKA
+3. Otwórz terminal: Terminal → New Terminal (lub Ctrl + `)
+
+════════════════════════════════════════════════════════════════
+
+⚡ KROK 2: Backend (w terminalu PowerShell)
+
+cd backend
+python -m venv venv
+venv\Scripts\activate
+python -m pip install --upgrade pip wheel setuptools
+pip install -r requirements-windows.txt  # ← UŻYJ TEGO!
+
+# Jeśli nadal błędy, przeczytaj: WINDOWS_INSTALL_GUIDE.md
+
+════════════════════════════════════════════════════════════════
+
+🔧 KROK 3: Konfiguracja
+
+copy .env.example .env
+notepad .env  # Zmień SECRET_KEY na coś losowego!
+
+════════════════════════════════════════════════════════════════
+
+💾 KROK 4: Baza danych
+
+# Upewnij się że MongoDB działa:
+net start MongoDB
+
+# Zainicjuj bazę z przykładowymi danymi:
+python init_db.py
+
+════════════════════════════════════════════════════════════════
+
+🚀 KROK 5: Uruchom backend
+
+python -m uvicorn app.main:app --reload
+
+# Backend działa na: http://localhost:8000
+# API Docs: http://localhost:8000/v1/docs
+
+════════════════════════════════════════════════════════════════
+
+🎨 KROK 6: Frontend (NOWY terminal!)
+
+# W VS Code kliknij "+" aby otworzyć nowy terminal
+
+cd frontend
+npm install
+npm start
+
+# Frontend otworzy się automatycznie: http://localhost:3000
+
+════════════════════════════════════════════════════════════════
+
+🔐 TESTOWE KONTA:
+
+Admin:        login: admin          hasło: admin123
+Bibliotekarz: login: bibliotekarz   hasło: bibliotekarz123
+Użytkownik:   login: uzytkownik     hasło: uzytkownik123
+
+════════════════════════════════════════════════════════════════
+
+❌ NADAL MASZ PROBLEMY?
+
+1. Błąd "Rust/pydantic-core"?
+   → Użyj requirements-windows.txt (już robisz to wyżej!)
+
+2. Błąd "pandas/numpy kompilacja"?
+   → To normalne, biblioteki ML nie są potrzebne na początek
+   → Aplikacja działa bez nich!
+
+3. Inne błędy?
+   → Przeczytaj: QUICK_FIX.md
+   → Pełny przewodnik: WINDOWS_INSTALL_GUIDE.md
+   → Checklista: CHECKLIST.md
+
+════════════════════════════════════════════════════════════════
+
+💡 ALTERNATYWNA METODA (jeśli nic nie działa):
+
+UŻYJ ANACONDY - zawiera wszystko prekompilowane!
+
+1. Pobierz: https://www.anaconda.com/download
+2. Zainstaluj Anaconda
+3. Otwórz Anaconda Prompt
+4. Uruchom:
+
+   cd ścieżka\do\BIBLIOTEKA\backend
+   conda create -n biblioteka python=3.11
+   conda activate biblioteka
+   pip install -r requirements-windows.txt
+   python init_db.py
+   python -m uvicorn app.main:app --reload
+
+════════════════════════════════════════════════════════════════
+
+📚 DOKUMENTACJA:
+
+- QUICK_FIX.md              → Szybkie rozwiązania (1 min)
+- SETUP_GUIDE.md            → Ogólny przewodnik (5 min)
+- WINDOWS_INSTALL_GUIDE.md  → Specjalnie dla Windows (10 min)
+- CHECKLIST.md              → Sprawdź co działa
+- STRUCTURE.md              → Struktura projektu
+
+════════════════════════════════════════════════════════════════
+
+✅ GOTOWE! Powodzenia! 🎉
+
+════════════════════════════════════════════════════════════════
