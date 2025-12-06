@@ -2,16 +2,17 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+
 import { AuthProvider } from './context/AuthContext';
 
-// Components
 import Navbar from './components/Navbar';
 
-// Pages
+
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Books from './pages/Books';
+import UserProfile from './pages/UserProfile';
 
 const theme = createTheme({
   palette: {
@@ -44,10 +45,10 @@ function App() {
           <Navbar />
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/books" element={<Books />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/books" element={<Books />} />
-            {/* Add more routes as needed */}
+            <Route path="/profile" element={<UserProfile />} />
           </Routes>
         </Router>
       </AuthProvider>

@@ -49,4 +49,13 @@ export const authAPI = {
   getMe: () => api.get('/auth/me')
 };
 
+// Users API
+export const usersAPI = {
+  getMe: () => api.get('/users/me'),
+  updateMe: (data) => api.patch('/users/me', data),
+  getRecommendations: (params) =>
+    api.get('/users/me/recommendations', { params }), // <–– NOWE
+};
+
+
 export default api;

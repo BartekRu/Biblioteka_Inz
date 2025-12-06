@@ -15,7 +15,6 @@ class RecommenderService:
         """Załaduj wytrenowany model"""
         model_dir = Path(model_dir)
         
-        # Załaduj checkpoint
         checkpoint_path = model_dir / "trained_models" / "goodbooks_lightgcn_best.pt"
         print(f"Ładowanie modelu z {checkpoint_path}...")
         
@@ -23,7 +22,6 @@ class RecommenderService:
         self.user_embeddings = checkpoint['user_emb'].numpy()
         self.item_embeddings = checkpoint['item_emb'].numpy()
         
-        # Załaduj mapowania
         with open(model_dir / "data" / "processed" / "book_mapping.json") as f:
             self.book_mapping = json.load(f)
         
@@ -52,16 +50,13 @@ class RecommenderService:
         if user_idx >= len(self.user_embeddings):
             return []
         
-        # Oblicz scores
         scores = self.user_embeddings[user_idx] @ self.item_embeddings.T
         
-        # Wyklucz książki jeśli podane
         if exclude_books:
             for book_idx in exclude_books:
                 if book_idx < len(scores):
                     scores[book_idx] = -np.inf
         
-        # Top-N
         top_indices = np.argsort(scores)[-n:][::-1]
         
         recommendations = []
@@ -69,7 +64,7 @@ class RecommenderService:
             original_book_id = self.book_mapping['to_original'].get(str(idx))
             if original_book_id:
                 recommendations.append({
-                    'book_id': int(original_book_id),  # ID z goodbooks-10k
+                    'book_id': int(original_book_id),
                     'score': float(scores[idx])
                 })
         
@@ -87,11 +82,9 @@ class RecommenderService:
         
         book_emb = self.item_embeddings[book_idx]
         
-        # Cosine similarity
         norms = np.linalg.norm(self.item_embeddings, axis=1)
         similarities = (self.item_embeddings @ book_emb) / (norms * np.linalg.norm(book_emb) + 1e-10)
         
-        # Wyklucz samą siebie
         similarities[book_idx] = -np.inf
         
         top_indices = np.argsort(similarities)[-n:][::-1]
@@ -108,7 +101,6 @@ class RecommenderService:
         return similar
 
 
-# Singleton
 _recommender = None
 
 def get_recommender() -> RecommenderService:

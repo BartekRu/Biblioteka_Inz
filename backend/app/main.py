@@ -4,7 +4,7 @@ from .config import settings
 from .database import connect_to_mongo, close_mongo_connection
 
 # Import routes
-from .routes import auth, books, recommendations
+from .routes import auth, books, recommendations, users
 
 app = FastAPI(
     title="Biblioteka API",
@@ -57,6 +57,7 @@ async def health_check():
 # Include routers
 app.include_router(auth.router, prefix=f"/{settings.API_VERSION}/auth", tags=["Authentication"])
 app.include_router(books.router, prefix=f"/{settings.API_VERSION}/books", tags=["Books"])
+app.include_router(users.router, prefix=f"/{settings.API_VERSION}/users", tags=["Users"],)
 app.include_router(recommendations.router)
 # app.include_router(users.router, prefix=f"/{settings.API_VERSION}/users", tags=["Users"])
 # app.include_router(recommendations.router, prefix=f"/{settings.API_VERSION}/recommendations", tags=["Recommendations"])

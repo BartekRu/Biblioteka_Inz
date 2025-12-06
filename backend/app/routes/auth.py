@@ -37,6 +37,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInDB:
     
     if user is None:
         raise credentials_exception
+    user["_id"] = str(user["_id"])
     
     return UserInDB(**user)
 
@@ -105,9 +106,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             detail="Inactive user"
         )
     
-    # Create access token
+        # Create access token
     access_token = create_access_token(data={"sub": str(user["_id"])})
-    
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -116,9 +117,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             "username": user["username"],
             "email": user["email"],
             "full_name": user["full_name"],
-            "role": user["role"]
-        }
+            "role": user["role"],
+            "goodbooks_user_id": user.get("goodbooks_user_id"),
+            "favorite_genres": user.get("favorite_genres", []),
+            "favorite_authors": user.get("favorite_authors", []),
+        },
     }
+
 
 
 @router.get("/me", response_model=UserResponse)

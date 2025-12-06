@@ -2,26 +2,36 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
+from typing import Optional, List
+from pydantic import BaseModel, Field
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema
+
+class BookBase(BaseModel):
+    title: str
+    author: str
+    isbn: str
+    publisher: Optional[str] = None
+    publication_year: Optional[int] = None
+    genre: List[str] = []
+    description: Optional[str] = None
+    language: Optional[str] = None
+    pages: Optional[int] = None
+    total_copies: int = 1
+    available_copies: int = 1
+    location: Optional[str] = None
+
+    # ⬇⬇⬇ NOWE POLE
+    goodbooks_book_id: Optional[int] = None
 
 
-class PyObjectId(ObjectId):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
 
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid ObjectId")
-        return ObjectId(v)
 
-    @classmethod
-    def __get_pydantic_json_schema__(cls, field_schema):
-        field_schema.update(type="string")
+
 
 
 class Book(BaseModel):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    id: Optional[str] = Field(alias="_id", default=None)    
     title: str
     author: str
     isbn: Optional[str] = None
@@ -32,6 +42,7 @@ class Book(BaseModel):
     cover_image: Optional[str] = None
     language: str = "pl"
     pages: Optional[int] = None
+    goodbooks_book_id: Optional[int] = None
     
     # Library-specific fields
     total_copies: int = 1
@@ -47,6 +58,7 @@ class Book(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     added_by: Optional[str] = None  # User ID who added the book
+     
     
     class Config:
         populate_by_name = True
@@ -84,6 +96,7 @@ class BookCreate(BaseModel):
     total_copies: int = 1
     available_copies: int = 1
     location: Optional[str] = None
+    goodbooks_book_id: Optional[int] = None
     
     class Config:
         json_schema_extra = {
@@ -118,6 +131,7 @@ class BookUpdate(BaseModel):
     total_copies: Optional[int] = None
     available_copies: Optional[int] = None
     location: Optional[str] = None
+    goodbooks_book_id: Optional[int] = None
 
 
 class BookResponse(BaseModel):
@@ -139,6 +153,7 @@ class BookResponse(BaseModel):
     total_reviews: int
     average_rating: float
     created_at: datetime
+    goodbooks_book_id: Optional[int] = None
     
     class Config:
         populate_by_name = True
