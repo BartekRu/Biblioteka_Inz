@@ -215,12 +215,10 @@ async def init_database():
     """Initialize database with sample data"""
     print("🚀 Inicjalizacja bazy danych...")
     
-    # Connect to MongoDB
     client = AsyncIOMotorClient(settings.MONGODB_URL)
     db = client[settings.DATABASE_NAME]
     
     try:
-        # Drop existing collections (optional - comment out in production)
         print("🗑️  Usuwanie istniejących kolekcji...")
         await db.users.drop()
         await db.books.drop()
