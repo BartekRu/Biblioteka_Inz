@@ -1,3 +1,7 @@
-from . import auth, books
+from . import auth, books, users, loans, reviews
 
-__all__ = ["auth", "books"]
+# Opcjonalnie recommendations
+try:
+    from . import recommendations
+except ImportError:
+    pass

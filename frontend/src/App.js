@@ -2,17 +2,14 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-
 import { AuthProvider } from './context/AuthContext';
-
 import Navbar from './components/Navbar';
-
-
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Books from './pages/Books';
+import Books from './pages/BookCatalog/Books';
 import UserProfile from './pages/UserProfile';
+import BookDetails from './pages/BookCatalog/BookDetails';
 
 const theme = createTheme({
   palette: {
@@ -49,6 +46,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/profile" element={<UserProfile />} />
+            <Route path="/books/:id" element={<BookDetails />} />
           </Routes>
         </Router>
       </AuthProvider>

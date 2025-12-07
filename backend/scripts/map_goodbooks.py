@@ -7,16 +7,13 @@ from unidecode import unidecode
 
 
 
-# ==============================================
-# CONFIG — DOSTOSUJ DO SWOJEJ BAZY
-# ==============================================
+
 MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "biblioteka"
 COLLECTION = "books"
 
-GOODBOOKS_CSV = "./books.csv"   # <- plik z goodbooks-10k
-FUZZY_THRESHOLD = 85            # minimalna zgodność dla fuzzy match
-# ==============================================
+GOODBOOKS_CSV = "./books.csv"  
+FUZZY_THRESHOLD = 85            
 
 
 def normalize(text: str) -> str:
@@ -27,20 +24,17 @@ def normalize(text: str) -> str:
 
 
 async def map_books():
-    # ----------------------------------------------
-    # 1. Wczytaj książki goodbooks-10k
-    # ----------------------------------------------
+
     print("Wczytywanie goodbooks CSV...")
 
-    goodbooks = []   # list of dicts
+    goodbooks = [] 
     goodbooks_by_isbn = {}
     goodbooks_titles = []
 
     with open(GOODBOOKS_CSV, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # spodziewane kolumny:
-            # book_id, authors, isbn, original_title, title
+
             book = {
                 "book_id": int(row["book_id"]),
                 "title": row["title"],
@@ -49,7 +43,6 @@ async def map_books():
             }
             goodbooks.append(book)
 
-            # indeksy
             if row.get("isbn"):
                 goodbooks_by_isbn[row["isbn"]] = book
 
@@ -58,9 +51,7 @@ async def map_books():
 
     print(f"Wczytano {len(goodbooks)} książek z goodbooks.")
 
-    # ----------------------------------------------
-    # 2. Otwórz MongoDB
-    # ----------------------------------------------
+
     client = AsyncIOMotorClient(MONGO_URI)
     db = client[DB_NAME]
     col = db[COLLECTION]
@@ -69,9 +60,6 @@ async def map_books():
     updates = 0
     no_match = []
 
-    # ----------------------------------------------
-    # 3. Przetwarzanie książek z MongoDB
-    # ----------------------------------------------
     print("\nRozpoczynam mapowanie książek...")
 
     async for b in books:
@@ -85,13 +73,11 @@ async def map_books():
 
         match = None
 
-        # 3A — próba dopasowania po ISBN
         if isbn and isbn in goodbooks_by_isbn:
             match = goodbooks_by_isbn[isbn]
             print(f"🎯 Dopasowano po ISBN: {isbn} → book_id={match['book_id']}")
 
         else:
-            # 3B — próbuj dopasować po title+author (normalized)
             norm_key = normalize(f"{title} {author}")
 
             best = process.extractOne(
@@ -110,7 +96,6 @@ async def map_books():
                 no_match.append((title, author))
                 continue
 
-        # 3C — Zapisz wynik do MongoDB
         if match:
             await col.update_one(
                 {"_id": mongo_id},
@@ -119,9 +104,7 @@ async def map_books():
             updates += 1
             print(f"💾 Zaktualizowano: {title} → goodbooks_book_id = {match['book_id']}")
 
-    # ----------------------------------------------
-    # 4. Raport
-    # ----------------------------------------------
+
     print("\n===================================")
     print(f"Zaktualizowano książek: {updates}")
     print(f"Nie dopasowano: {len(no_match)}")

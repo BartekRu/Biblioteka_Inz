@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 
-# Import serwisu
 import sys
 sys.path.append(".")
 from recommendation_engine.recommender_service import get_recommender
@@ -13,7 +12,7 @@ router = APIRouter(prefix="/api/recommendations", tags=["Recommendations"])
 async def get_user_recommendations(
     user_id: int, 
     n: int = 10,
-    exclude: Optional[str] = None  # comma-separated book IDs
+    exclude: Optional[str] = None
 ):
     """
     Rekomendacje dla użytkownika
@@ -25,12 +24,10 @@ async def get_user_recommendations(
     try:
         recommender = get_recommender()
         
-        # Mapuj user_id na indeks
         user_idx = recommender.user_mapping['to_idx'].get(str(user_id))
         if user_idx is None:
             raise HTTPException(404, f"Użytkownik {user_id} nie istnieje w modelu")
         
-        # Parsuj exclude
         exclude_indices = []
         if exclude:
             for book_id in exclude.split(','):

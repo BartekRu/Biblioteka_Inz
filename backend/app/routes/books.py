@@ -1,178 +1,264 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import List, Optional
-from datetime import datetime
-from ..models.book import Book, BookCreate, BookUpdate, BookResponse
-from ..models.user import UserInDB
-from ..routes.auth import get_current_active_user
-from ..database import get_database
+from fastapi import APIRouter, HTTPException, Query, Depends
+from typing import Optional, List
 from bson import ObjectId
+from datetime import datetime
+import math
+
+from ..database import get_database
+from ..routes.auth import get_current_active_user, get_current_user
+from ..models.user import UserInDB
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[BookResponse])
+# ============================================
+# GET /books/ - Lista książek z paginacją
+# ============================================
+@router.get("/")
 async def get_books(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
-    search: Optional[str] = None,
-    genre: Optional[str] = None,
-    author: Optional[str] = None
+    page: int = Query(1, ge=1, description="Numer strony"),
+    limit: int = Query(12, ge=1, le=100, description="Liczba książek na stronę"),
+    search: Optional[str] = Query(None, description="Szukaj po tytule lub autorze"),
+    genre: Optional[str] = Query(None, description="Filtruj po gatunku"),
+    sort: str = Query("title", description="Sortowanie: title, -title, -average_rating, -ratings_count, publication_year, -publication_year"),
+    available_only: bool = Query(False, description="Tylko dostępne")
 ):
-    """Get all books with optional filters"""
+    """
+    Pobierz listę książek z paginacją, wyszukiwaniem i filtrami.
+    """
     db = get_database()
     
-    # Build query
+    # Buduj query
     query = {}
+    
+    # Wyszukiwanie tekstowe
     if search:
+        # Użyj text search jeśli dostępny, w przeciwnym razie regex
         query["$or"] = [
             {"title": {"$regex": search, "$options": "i"}},
-            {"author": {"$regex": search, "$options": "i"}},
-            {"description": {"$regex": search, "$options": "i"}}
+            {"author": {"$regex": search, "$options": "i"}}
         ]
+    
+    # Filtr gatunku
     if genre:
         query["genre"] = {"$regex": genre, "$options": "i"}
-    if author:
-        query["author"] = {"$regex": author, "$options": "i"}
     
-    # Get books
-    cursor = db.books.find(query).skip(skip).limit(limit)
-    books = await cursor.to_list(length=limit)
+    # Tylko dostępne
+    if available_only:
+        query["available_copies"] = {"$gt": 0}
     
-    # Convert ObjectId to string
-    for book in books:
+    # Sortowanie
+    sort_field = sort.lstrip("-")
+    sort_order = -1 if sort.startswith("-") else 1
+    
+    # Mapowanie pól sortowania
+    sort_mapping = {
+        "title": "title",
+        "author": "author",
+        "average_rating": "average_rating",
+        "ratings_count": "ratings_count",
+        "publication_year": "publication_year",
+        "created_at": "created_at"
+    }
+    sort_field = sort_mapping.get(sort_field, "title")
+    
+    # Policz całkowitą liczbę
+    total = await db.books.count_documents(query)
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+    
+    # Pobierz książki
+    skip = (page - 1) * limit
+    cursor = db.books.find(query).sort(sort_field, sort_order).skip(skip).limit(limit)
+    
+    books = []
+    async for book in cursor:
         book["_id"] = str(book["_id"])
+        books.append(book)
     
-    return [BookResponse(**book) for book in books]
+    return {
+        "books": books,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1
+    }
 
 
-@router.get("/{book_id}", response_model=BookResponse)
+# ============================================
+# GET /books/{id} - Szczegóły książki
+# ============================================
+@router.get("/{book_id}")
 async def get_book(book_id: str):
-    """Get a specific book by ID"""
+    """
+    Pobierz szczegóły pojedynczej książki.
+    """
     db = get_database()
     
-    try:
-        book = await db.books.find_one({"_id": ObjectId(book_id)})
-    except:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid book ID format"
-        )
+    if not ObjectId.is_valid(book_id):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
+    
+    book = await db.books.find_one({"_id": ObjectId(book_id)})
     
     if not book:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
-        )
+        raise HTTPException(status_code=404, detail="Książka nie znaleziona")
     
     book["_id"] = str(book["_id"])
-    return BookResponse(**book)
+    return book
 
 
-@router.post("/", response_model=BookResponse, status_code=status.HTTP_201_CREATED)
+# ============================================
+# POST /books/ - Dodaj książkę (admin/librarian)
+# ============================================
+@router.post("/", status_code=201)
 async def create_book(
-    book: BookCreate,
+    book_data: dict,
     current_user: UserInDB = Depends(get_current_active_user)
 ):
-    """Create a new book (librarian/admin only)"""
-    if current_user.role not in ["librarian", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
+    """
+    Dodaj nową książkę (wymaga roli admin lub librarian).
+    """
+    if current_user.role not in ["admin", "librarian"]:
+        raise HTTPException(status_code=403, detail="Brak uprawnień")
     
     db = get_database()
     
-    # Create book
-    book_dict = book.model_dump()
-    book_dict["created_at"] = datetime.utcnow()
-    book_dict["updated_at"] = datetime.utcnow()
-    book_dict["added_by"] = str(current_user.id)
-    book_dict["total_loans"] = 0
-    book_dict["total_reviews"] = 0
-    book_dict["average_rating"] = 0.0
+    # Ustaw domyślne wartości
+    book_data["created_at"] = datetime.utcnow()
+    book_data["updated_at"] = datetime.utcnow()
+    book_data.setdefault("available_copies", book_data.get("total_copies", 1))
+    book_data.setdefault("average_rating", 0)
+    book_data.setdefault("ratings_count", 0)
+    book_data.setdefault("total_loans", 0)
     
-    result = await db.books.insert_one(book_dict)
+    result = await db.books.insert_one(book_data)
+    
     created_book = await db.books.find_one({"_id": result.inserted_id})
-    
     created_book["_id"] = str(created_book["_id"])
-    return BookResponse(**created_book)
+    
+    return created_book
 
 
-@router.put("/{book_id}", response_model=BookResponse)
+# ============================================
+# PUT /books/{id} - Aktualizuj książkę
+# ============================================
+@router.put("/{book_id}")
 async def update_book(
     book_id: str,
-    book_update: BookUpdate,
+    book_data: dict,
     current_user: UserInDB = Depends(get_current_active_user)
 ):
-    """Update a book (librarian/admin only)"""
-    if current_user.role not in ["librarian", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
+    """
+    Aktualizuj książkę (wymaga roli admin lub librarian).
+    """
+    if current_user.role not in ["admin", "librarian"]:
+        raise HTTPException(status_code=403, detail="Brak uprawnień")
     
     db = get_database()
     
-    # Check if book exists
-    try:
-        existing_book = await db.books.find_one({"_id": ObjectId(book_id)})
-    except:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid book ID format"
-        )
+    if not ObjectId.is_valid(book_id):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
     
-    if not existing_book:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
-        )
+    book_data["updated_at"] = datetime.utcnow()
     
-    # Update book
-    update_data = {k: v for k, v in book_update.model_dump().items() if v is not None}
-    update_data["updated_at"] = datetime.utcnow()
+    # Usuń _id jeśli został przesłany
+    book_data.pop("_id", None)
     
-    await db.books.update_one(
+    result = await db.books.update_one(
         {"_id": ObjectId(book_id)},
-        {"$set": update_data}
+        {"$set": book_data}
     )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Książka nie znaleziona")
     
     updated_book = await db.books.find_one({"_id": ObjectId(book_id)})
     updated_book["_id"] = str(updated_book["_id"])
     
-    return BookResponse(**updated_book)
+    return updated_book
 
 
-@router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+# ============================================
+# DELETE /books/{id} - Usuń książkę
+# ============================================
+@router.delete("/{book_id}")
 async def delete_book(
     book_id: str,
     current_user: UserInDB = Depends(get_current_active_user)
 ):
-    """Delete a book (admin only)"""
+    """
+    Usuń książkę (wymaga roli admin).
+    """
     if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
+        raise HTTPException(status_code=403, detail="Brak uprawnień")
     
     db = get_database()
     
-    # Check if book exists
-    try:
-        book = await db.books.find_one({"_id": ObjectId(book_id)})
-    except:
+    if not ObjectId.is_valid(book_id):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
+    
+    # Sprawdź czy książka nie jest wypożyczona
+    active_loan = await db.loans.find_one({
+        "book_id": book_id,
+        "status": "active"
+    })
+    
+    if active_loan:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid book ID format"
+            status_code=400, 
+            detail="Nie można usunąć książki - jest aktualnie wypożyczona"
         )
+    
+    result = await db.books.delete_one({"_id": ObjectId(book_id)})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Książka nie znaleziona")
+    
+    return {"message": "Książka została usunięta"}
+
+
+# ============================================
+# GET /books/{id}/similar - Podobne książki
+# ============================================
+@router.get("/{book_id}/similar")
+async def get_similar_books(
+    book_id: str,
+    limit: int = Query(6, ge=1, le=20)
+):
+    """
+    Pobierz podobne książki (na podstawie gatunku i autora).
+    """
+    db = get_database()
+    
+    if not ObjectId.is_valid(book_id):
+        raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
+    
+    book = await db.books.find_one({"_id": ObjectId(book_id)})
     
     if not book:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Book not found"
-        )
+        raise HTTPException(status_code=404, detail="Książka nie znaleziona")
     
-    # Delete book
-    await db.books.delete_one({"_id": ObjectId(book_id)})
+    # Znajdź podobne po gatunku lub autorze
+    query = {
+        "_id": {"$ne": ObjectId(book_id)},
+        "$or": []
+    }
     
-    return None
+    if book.get("genre"):
+        query["$or"].append({"genre": {"$in": book["genre"]}})
+    
+    if book.get("author"):
+        query["$or"].append({"author": book["author"]})
+    
+    if not query["$or"]:
+        return []
+    
+    cursor = db.books.find(query).sort("average_rating", -1).limit(limit)
+    
+    similar = []
+    async for similar_book in cursor:
+        similar_book["_id"] = str(similar_book["_id"])
+        similar.append(similar_book)
+    
+    return similar
