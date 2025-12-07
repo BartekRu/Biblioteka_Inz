@@ -11,9 +11,7 @@ from ..models.user import UserInDB
 router = APIRouter()
 
 
-# ============================================
-# Modele Pydantic
-# ============================================
+
 class LoanCreate(BaseModel):
     book_id: str
     librarian_notes: Optional[str] = None
@@ -23,9 +21,7 @@ class LoanReturn(BaseModel):
     librarian_notes: Optional[str] = None
 
 
-# ============================================
-# GET /loans/ - Lista wypożyczeń (admin/librarian)
-# ============================================
+
 @router.get("/")
 async def get_loans(
     status: Optional[str] = Query(None, description="active, returned, overdue"),
@@ -53,7 +49,6 @@ async def get_loans(
     async for loan in cursor:
         loan["_id"] = str(loan["_id"])
         
-        # Pobierz dane książki
         if loan.get("book_id"):
             try:
                 book = await db.books.find_one({"_id": ObjectId(loan["book_id"])})
@@ -63,7 +58,6 @@ async def get_loans(
             except:
                 pass
         
-        # Pobierz dane użytkownika
         if loan.get("user_id"):
             try:
                 user = await db.users.find_one({"_id": ObjectId(loan["user_id"])})
@@ -73,7 +67,6 @@ async def get_loans(
             except:
                 pass
         
-        # Sprawdź czy przeterminowane
         if loan["status"] == "active" and loan.get("due_date"):
             loan["is_overdue"] = datetime.utcnow() > loan["due_date"]
         else:
@@ -91,9 +84,6 @@ async def get_loans(
     }
 
 
-# ============================================
-# GET /loans/me - Moje wypożyczenia
-# ============================================
 @router.get("/me")
 async def get_my_loans(
     status: Optional[str] = Query(None),
@@ -114,7 +104,6 @@ async def get_my_loans(
     async for loan in cursor:
         loan["_id"] = str(loan["_id"])
         
-        # Pobierz dane książki
         if loan.get("book_id"):
             try:
                 book = await db.books.find_one({"_id": ObjectId(loan["book_id"])})
@@ -125,7 +114,6 @@ async def get_my_loans(
             except:
                 pass
         
-        # Sprawdź czy przeterminowane
         if loan["status"] == "active" and loan.get("due_date"):
             loan["is_overdue"] = datetime.utcnow() > loan["due_date"]
         else:
@@ -136,9 +124,7 @@ async def get_my_loans(
     return loans
 
 
-# ============================================
-# GET /loans/{id} - Szczegóły wypożyczenia
-# ============================================
+
 @router.get("/{loan_id}")
 async def get_loan(
     loan_id: str,
@@ -157,7 +143,6 @@ async def get_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Wypożyczenie nie znalezione")
     
-    # Sprawdź uprawnienia
     if loan["user_id"] != current_user.id and current_user.role not in ["admin", "librarian"]:
         raise HTTPException(status_code=403, detail="Brak uprawnień")
     
@@ -166,9 +151,6 @@ async def get_loan(
     return loan
 
 
-# ============================================
-# POST /loans/ - Utwórz wypożyczenie
-# ============================================
 @router.post("/", status_code=201)
 async def create_loan(
     loan_data: LoanCreate,
@@ -179,7 +161,6 @@ async def create_loan(
     """
     db = get_database()
     
-    # Sprawdź czy książka istnieje
     if not ObjectId.is_valid(loan_data.book_id):
         raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
     
@@ -188,11 +169,9 @@ async def create_loan(
     if not book:
         raise HTTPException(status_code=404, detail="Książka nie znaleziona")
     
-    # Sprawdź dostępność
     if book.get("available_copies", 0) <= 0:
         raise HTTPException(status_code=400, detail="Brak dostępnych egzemplarzy")
     
-    # Sprawdź czy użytkownik nie ma już tej książki wypożyczonej
     existing_loan = await db.loans.find_one({
         "book_id": loan_data.book_id,
         "user_id": current_user.id,
@@ -202,7 +181,6 @@ async def create_loan(
     if existing_loan:
         raise HTTPException(status_code=400, detail="Masz już wypożyczoną tę książkę")
     
-    # Sprawdź limit wypożyczeń użytkownika (max 5 aktywnych)
     active_loans_count = await db.loans.count_documents({
         "user_id": current_user.id,
         "status": "active"
@@ -214,7 +192,6 @@ async def create_loan(
             detail="Osiągnięto limit wypożyczeń (max 5 książek jednocześnie)"
         )
     
-    # Utwórz wypożyczenie
     loan_doc = {
         "book_id": loan_data.book_id,
         "user_id": current_user.id,
@@ -229,7 +206,6 @@ async def create_loan(
     
     result = await db.loans.insert_one(loan_doc)
     
-    # Zmniejsz liczbę dostępnych egzemplarzy
     await db.books.update_one(
         {"_id": ObjectId(loan_data.book_id)},
         {
@@ -238,7 +214,6 @@ async def create_loan(
         }
     )
     
-    # Dodaj do historii użytkownika
     await db.users.update_one(
         {"_id": ObjectId(current_user.id)},
         {
@@ -247,7 +222,6 @@ async def create_loan(
         }
     )
     
-    # Pobierz utworzone wypożyczenie
     created_loan = await db.loans.find_one({"_id": result.inserted_id})
     created_loan["_id"] = str(created_loan["_id"])
     created_loan["book_title"] = book.get("title", "")
@@ -255,9 +229,7 @@ async def create_loan(
     return created_loan
 
 
-# ============================================
-# POST /loans/{id}/return - Zwróć książkę
-# ============================================
+
 @router.post("/{loan_id}/return")
 async def return_loan(
     loan_id: str,
@@ -277,14 +249,12 @@ async def return_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Wypożyczenie nie znalezione")
     
-    # Sprawdź uprawnienia
     if loan["user_id"] != current_user.id and current_user.role not in ["admin", "librarian"]:
         raise HTTPException(status_code=403, detail="Brak uprawnień")
     
     if loan["status"] != "active":
         raise HTTPException(status_code=400, detail="To wypożyczenie nie jest aktywne")
     
-    # Zaktualizuj wypożyczenie
     await db.loans.update_one(
         {"_id": ObjectId(loan_id)},
         {"$set": {
@@ -294,7 +264,6 @@ async def return_loan(
         }}
     )
     
-    # Zwiększ liczbę dostępnych egzemplarzy
     await db.books.update_one(
         {"_id": ObjectId(loan["book_id"])},
         {
@@ -306,9 +275,7 @@ async def return_loan(
     return {"message": "Książka została zwrócona"}
 
 
-# ============================================
-# POST /loans/{id}/renew - Przedłuż wypożyczenie
-# ============================================
+
 @router.post("/{loan_id}/renew")
 async def renew_loan(
     loan_id: str,
@@ -327,7 +294,6 @@ async def renew_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Wypożyczenie nie znalezione")
     
-    # Sprawdź uprawnienia
     if loan["user_id"] != current_user.id:
         raise HTTPException(status_code=403, detail="Brak uprawnień")
     
@@ -340,7 +306,6 @@ async def renew_loan(
             detail="Osiągnięto maksymalną liczbę przedłużeń"
         )
     
-    # Przedłuż o 14 dni
     new_due_date = loan["due_date"] + timedelta(days=14)
     
     await db.loans.update_one(
@@ -358,9 +323,7 @@ async def renew_loan(
     }
 
 
-# ============================================
-# GET /loans/can-borrow/{book_id} - Czy można wypożyczyć
-# ============================================
+
 @router.get("/can-borrow/{book_id}")
 async def can_borrow_book(
     book_id: str,
@@ -374,7 +337,6 @@ async def can_borrow_book(
     if not ObjectId.is_valid(book_id):
         raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
     
-    # Sprawdź książkę
     book = await db.books.find_one({"_id": ObjectId(book_id)})
     
     if not book:
@@ -383,7 +345,6 @@ async def can_borrow_book(
     if book.get("available_copies", 0) <= 0:
         return {"can_borrow": False, "reason": "Brak dostępnych egzemplarzy"}
     
-    # Sprawdź czy już wypożyczona
     existing = await db.loans.find_one({
         "book_id": book_id,
         "user_id": current_user.id,
@@ -393,7 +354,6 @@ async def can_borrow_book(
     if existing:
         return {"can_borrow": False, "reason": "Masz już wypożyczoną tę książkę"}
     
-    # Sprawdź limit
     active_count = await db.loans.count_documents({
         "user_id": current_user.id,
         "status": "active"

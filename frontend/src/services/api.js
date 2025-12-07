@@ -73,58 +73,69 @@ export const usersAPI = {
 
 // Loans API
 export const loansAPI = {
-  // Pobierz wszystkie wypożyczenia (admin/librarian)
   getAll: (params = {}) => api.get('/loans/', { params }),
-  
-  // Pobierz moje wypożyczenia
   getMine: () => api.get('/loans/me'),
-  
-  // Pobierz szczegóły wypożyczenia
   getById: (id) => api.get(`/loans/${id}`),
-  
-  // Utwórz nowe wypożyczenie
   create: (data) => api.post('/loans/', data),
-  
-  // Zwróć książkę
   return: (id, data = {}) => api.post(`/loans/${id}/return`, data),
-  
-  // Przedłuż wypożyczenie
   renew: (id) => api.post(`/loans/${id}/renew`),
-  
-  // Sprawdź czy użytkownik może wypożyczyć daną książkę
   canBorrow: (bookId) => api.get(`/loans/can-borrow/${bookId}`)
 };
 
 // Reviews API
 export const reviewsAPI = {
-  // Pobierz recenzje dla książki
   getByBook: (bookId) => api.get(`/reviews/book/${bookId}`),
-  
-  // Pobierz moje recenzje
   getMine: () => api.get('/reviews/me'),
-  
-  // Dodaj recenzję
   create: (data) => api.post('/reviews/', data),
-  
-  // Zaktualizuj recenzję
   update: (id, data) => api.put(`/reviews/${id}`, data),
-  
-  // Usuń recenzję
   delete: (id) => api.delete(`/reviews/${id}`)
 };
 
-// Recommendations API (direct access to recommendation engine)
+// ============================================================================
+// RECOMMENDATIONS API - dla strony rekomendacji
+// ============================================================================
 export const recommendationsAPI = {
-  // Rekomendacje dla użytkownika goodbooks
-  getForUser: (userId, n = 10) => 
-    api.get(`/api/recommendations/user/${userId}`, { params: { n } }),
-  
+  // Wyróżnione rekomendacje (carousel)
+  getFeatured: (limit = 10) => 
+    api.get('/recommendations/featured', { params: { limit } }),
+
+  // Kategorie z okładkami
+  getCategories: () => 
+    api.get('/recommendations/categories'),
+
+  // Sekcje "Ponieważ wypożyczyłeś"
+  getBecauseYouBorrowed: (limit = 3) => 
+    api.get('/recommendations/because-borrowed', { params: { limit } }),
+
+  // Kolejka odkryć
+  getDiscoveryQueue: (limit = 12) => 
+    api.get('/recommendations/discovery-queue', { params: { limit } }),
+
+  // Znani autorzy
+  getKnownAuthors: (limit = 6) => 
+    api.get('/recommendations/known-authors', { params: { limit } }),
+
+  // Metryki modelu
+  getModelMetrics: () => 
+    api.get('/recommendations/metrics'),
+
   // Podobne książki
-  getSimilar: (bookId, n = 10) => 
-    api.get(`/api/recommendations/similar/${bookId}`, { params: { n } }),
-  
+  getSimilar: (bookId, limit = 8) => 
+    api.get(`/recommendations/similar/${bookId}`, { params: { limit } }),
+
+  // Raportuj interakcję
+  reportInteraction: (bookId, interactionType, metadata = {}) => 
+    api.post('/recommendations/interaction', null, {
+      params: {
+        book_id: bookId,
+        interaction_type: interactionType
+      },
+      data: metadata
+    }),
+
   // Health check
-  health: () => api.get('/api/recommendations/health')
+  getHealth: () => 
+    api.get('/recommendations/health')
 };
 
 export default api;

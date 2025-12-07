@@ -3,15 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from .database import connect_to_mongo, close_mongo_connection
-from .routes import auth, books, users, loans, reviews
+from .routes import auth, books, users, loans, reviews, recommendations
 
-# Opcjonalnie: recommendation engine
-try:
-    from .routes import recommendations
-    RECOMMENDATIONS_AVAILABLE = True
-except ImportError:
-    RECOMMENDATIONS_AVAILABLE = False
-    print("⚠️ Recommendations router not available")
+
 
 
 @asynccontextmanager
@@ -45,9 +39,8 @@ app.include_router(books.router, prefix="/v1/books", tags=["Books"])
 app.include_router(users.router, prefix="/v1/users", tags=["Users"])
 app.include_router(loans.router, prefix="/v1/loans", tags=["Loans"])
 app.include_router(reviews.router, prefix="/v1/reviews", tags=["Reviews"])
+app.include_router(recommendations.router, tags=["Recommendations"])  # ← DODAJ TO
 
-if RECOMMENDATIONS_AVAILABLE:
-    app.include_router(recommendations.router, tags=["Recommendations"])
 
 
 @app.get("/")
