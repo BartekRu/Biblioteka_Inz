@@ -95,6 +95,11 @@ export const reviewsAPI = {
 // RECOMMENDATIONS API - dla strony rekomendacji
 // ============================================================================
 export const recommendationsAPI = {
+
+    // Rekomendacje LightGCN PRO dla zalogowanego użytkownika
+  getUserLightGCN: (limit = 20) =>
+    api.get('/recommendations/user-lightgcn', { params: { limit } }),
+
   // Wyróżnione rekomendacje (carousel)
   getFeatured: (limit = 10) => 
     api.get('/recommendations/featured', { params: { limit } }),
@@ -132,6 +137,7 @@ export const recommendationsAPI = {
       },
       data: metadata
     }),
+    
 
   // Health check
   getHealth: () => 

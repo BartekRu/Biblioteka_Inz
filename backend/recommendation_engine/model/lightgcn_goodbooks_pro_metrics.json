@@ -1,0 +1,11 @@
+{
+    "recall20": 0.10236378450303002,
+    "ndcg20": 0.07292962887612524,
+    "epochs": 60,
+    "embeddingDim": 128,
+    "layers": 3,
+    "learningRate": 0.001,
+    "interactions_used": 898950,
+    "dataset": "goodbooks-10k",
+    "coverage": 1.0
+}

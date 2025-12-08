@@ -1,0 +1,14 @@
+{
+  "recall20": 0.078,
+  "ndcg20": 0.03299128065274076,
+  "coverage": 0.6043,
+  "trainUsers": "53424",
+  "trainItems": "10000",
+  "interactions": "599031",
+  "embeddingDim": "64",
+  "epochs": "50",
+  "learningRate": "0.001",
+  "lastUpdated": "2025-12-08",
+  "modelName": "LightGCN (goodbooks-10k)",
+  "layers": 3
+}

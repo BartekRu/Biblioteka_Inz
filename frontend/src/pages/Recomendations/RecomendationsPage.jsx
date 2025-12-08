@@ -1505,39 +1505,44 @@ const RecommendationsPage = () => {
         setError(null);
 
         const [
-          featuredRes,
-          categoriesRes,
-          becauseRes,
-          queueRes,
-          authorsRes,
-          metricsRes,
-        ] = await Promise.allSettled([
-          recommendationsAPI.getFeatured(),
-          recommendationsAPI.getCategories(),
-          recommendationsAPI.getBecauseYouBorrowed(),
-          recommendationsAPI.getDiscoveryQueue(),
-          recommendationsAPI.getKnownAuthors(),
-          recommendationsAPI.getModelMetrics(),
-        ]);
+  userRecRes,
+  categoriesRes,
+  becauseRes,
+  queueRes,      // zostawiamy, na razie nie użyjemy
+  authorsRes,
+  metricsRes,
+] = await Promise.allSettled([
+  recommendationsAPI.getUserLightGCN(30),   // TU: LightGCN PRO
+  recommendationsAPI.getCategories(),
+  recommendationsAPI.getBecauseYouBorrowed(),
+  recommendationsAPI.getDiscoveryQueue(),   // może się przydać jako fallback
+  recommendationsAPI.getKnownAuthors(),
+  recommendationsAPI.getModelMetrics(),
+]);
 
-        if (featuredRes.status === 'fulfilled') {
-          setFeaturedBooks(featuredRes.value.data || []);
-        }
-        if (categoriesRes.status === 'fulfilled') {
-          setCategories(categoriesRes.value.data || []);
-        }
-        if (becauseRes.status === 'fulfilled') {
-          setBecauseSections(becauseRes.value.data || []);
-        }
-        if (queueRes.status === 'fulfilled') {
-          setDiscoveryQueue(queueRes.value.data || []);
-        }
-        if (authorsRes.status === 'fulfilled') {
-          setKnownAuthors(authorsRes.value.data || []);
-        }
-        if (metricsRes.status === 'fulfilled') {
-          setModelMetrics(metricsRes.value.data);
-        }
+if (userRecRes.status === 'fulfilled') {
+  const recs = userRecRes.value.data || [];
+
+  // główny carousel bierze pierwsze 10
+  setFeaturedBooks(recs.slice(0, 10));
+
+  // kolejka odkryć – cała lista (albo np. od 10. pozycji)
+  setDiscoveryQueue(recs); 
+}
+
+if (categoriesRes.status === 'fulfilled') {
+  setCategories(categoriesRes.value.data || []);
+}
+if (becauseRes.status === 'fulfilled') {
+  setBecauseSections(becauseRes.value.data || []);
+}
+if (authorsRes.status === 'fulfilled') {
+  setKnownAuthors(authorsRes.value.data || []);
+}
+if (metricsRes.status === 'fulfilled') {
+  setModelMetrics(metricsRes.value.data);
+}
+
       } catch (err) {
         console.error('Error fetching recommendations:', err);
         setError('Nie udało się załadować rekomendacji. Spróbuj ponownie.');

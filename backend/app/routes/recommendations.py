@@ -3,6 +3,11 @@ from typing import Optional
 from datetime import datetime
 from bson import ObjectId
 import random
+import json
+from pathlib import Path
+from recommendation_engine.goodbooks_lightgcn_service import goodbooks_lgcn_service
+from recommendation_engine.goodbooks_lightgcn import MODEL_DIR
+
 
 from pydantic import BaseModel
 
@@ -81,11 +86,62 @@ async def health_check():
 
 
 # ==========================================================
-#  METRYKI MODELU
+#  METRYKI MODELU (REALNE Z LIGHTGCN)
 # ==========================================================
 
 @router.get("/metrics")
 async def get_metrics():
+    """
+    Zwraca metryki modelu LightGCN:
+    - próbuje wczytać JSON wygenerowany podczas treningu
+    - jeśli brak pliku -> zwraca wartości domyślne (mock)
+    """
+    model_dir = Path(MODEL_DIR)
+    pro_file = model_dir / "lightgcn_goodbooks_pro_metrics.json"
+    base_file = model_dir / "lightgcn_goodbooks_metrics.json"
+
+    metrics_file = None
+    if pro_file.exists():
+        metrics_file = pro_file
+    elif base_file.exists():
+        metrics_file = base_file
+
+    if metrics_file and metrics_file.exists():
+        with open(metrics_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # data zawiera m.in.:
+        # recall20, ndcg20, coverage, epochs, embeddingDim, layers, learningRate, interactions_used, dataset
+        try:
+            last_updated = datetime.fromtimestamp(
+                metrics_file.stat().st_mtime
+            ).strftime("%Y-%m-%d")
+        except Exception:
+            last_updated = datetime.now().strftime("%Y-%m-%d")
+
+        return {
+            "recall20": data.get("recall20", 0.0),
+            "ndcg20": data.get("ndcg20", 0.0),
+            # precision20 nie jest wyliczane w treningu – zostawiamy 0 lub kiedyś dorobimy
+            "precision20": data.get("precision20", 0.0),
+            "coverage": data.get("coverage", 0.0),
+
+            # Do panelu „Szczegóły” – możesz później podmienić na dokładne wartości
+            "trainUsers": data.get("trainUsers", "53,175"),
+            "trainItems": data.get("trainItems", "10,000"),
+            "interactions": str(
+                data.get("interactions_used", data.get("interactions", 0))
+            ),
+
+            "embeddingDim": str(data.get("embeddingDim", "64")),
+            "epochs": str(data.get("epochs", "")),
+            "learningRate": str(data.get("learningRate", "")),
+            "lastUpdated": last_updated,
+            "modelName": data.get("modelName", "LightGCN (goodbooks-10k)"),
+            "layers": data.get("layers", 3),
+        }
+
+    # Fallback – brak pliku z metrykami
     return {
         "recall20": 0.1411,
         "ndcg20": 0.0842,
@@ -101,6 +157,7 @@ async def get_metrics():
         "modelName": "LightGCN",
         "layers": 3,
     }
+
 
 
 # ==========================================================
@@ -452,3 +509,92 @@ async def report_interaction(
     await db.interactions.insert_one(doc)
 
     return {"status": "recorded"}
+
+# ==========================================================
+#  USER LIGHTGCN RECOMMENDATIONS (GOODBOOKS)
+# ==========================================================
+
+@router.get("/user-lightgcn")
+async def get_user_lightgcn_recommendations(
+    limit: int = Query(default=20, le=50),
+    current_user = Depends(get_current_user),
+):
+    """
+    Rekomendacje oparte na modelu LightGCN trenowanym na goodbooks-10k.
+    Dla aktualnego użytkownika:
+    - bierzemy jego wypożyczenia
+    - filtrujemy tylko książki z goodbooks_book_id
+    - generujemy embedding usera jako średnia embeddingów jego książek
+    - zwracamy top-N dopasowanych książek z katalogu
+    """
+    db = get_database()
+    user_id = getattr(current_user, "id", None)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Brak poprawnego użytkownika")
+
+    try:
+        uid = ObjectId(str(user_id))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Nieprawidłowe ID użytkownika")
+
+    # 1) Wypożyczenia użytkownika
+    user_goodbooks_ids = set()
+
+    async for loan in db.loans.find({"user_id": uid}):
+        book_id = loan.get("book_id")
+        if not book_id:
+            continue
+
+        book = await db.books.find_one({"_id": book_id})
+        if not book:
+            continue
+
+        gb_id = book.get("goodbooks_book_id")
+        if gb_id is None:
+            continue
+
+        # goodbooks_book_id może być stringiem – rzutujemy na int
+        try:
+            gb_int = int(gb_id)
+        except (TypeError, ValueError):
+            continue
+
+        user_goodbooks_ids.add(gb_int)
+
+    # 2) Jeśli user nie ma żadnych powiązań z goodbooks -> fallback globalny
+    if not user_goodbooks_ids:
+        rec_goodbooks_ids = goodbooks_lgcn_service.recommend_for_goodbooks_ids(
+            [],
+            top_k=limit * 3,
+        )
+    else:
+        rec_goodbooks_ids = goodbooks_lgcn_service.recommend_for_goodbooks_ids(
+            list(user_goodbooks_ids),
+            top_k=limit * 3,  # bierzemy trochę więcej, bo część może nie istnieć w Mongo
+        )
+
+    # 3) Mapowanie goodbooks_book_id -> dokumenty książek w Mongo
+    results = []
+    seen = set()
+
+    for gb_id in rec_goodbooks_ids:
+        if len(results) >= limit:
+            break
+        if gb_id in seen:
+            continue
+        seen.add(gb_id)
+
+        # Próba dopasowania int i string
+        book = await db.books.find_one({"goodbooks_book_id": gb_id})
+        if not book:
+            book = await db.books.find_one({"goodbooks_book_id": str(gb_id)})
+
+        if not book:
+            continue
+
+        book = normalize_book(serialize_doc(book))
+        # opcjonalnie możesz dopisać np. book["matchScore"] = ... jeśli chcesz
+        results.append(book)
+
+    return results
+
