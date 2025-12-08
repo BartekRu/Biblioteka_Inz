@@ -1,6 +1,6 @@
 /**
  * RecommendationsPage.jsx
- * 
+ *
  * Strona rekomendacji książek inspirowana interfejsem Steam
  * Pokazuje wyniki modelu LightGCN w różnych sekcjach
  */
@@ -19,12 +19,8 @@ import {
   Rating,
   Skeleton,
   Tooltip,
-  LinearProgress,
   Paper,
-  Tabs,
-  Tab,
   Divider,
-  Badge,
   Alert,
   Collapse,
 } from '@mui/material';
@@ -33,7 +29,6 @@ import {
   ChevronRight,
   AutoAwesome,
   TrendingUp,
-  History,
   LocalLibrary,
   Psychology,
   Category,
@@ -49,7 +44,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { recommendationsAPI,booksAPI } from '../../services/api';
+import { recommendationsAPI } from '../../services/api';
 
 // ============================================================================
 // STYLE CONSTANTS - Steam-inspired dark theme for library
@@ -104,21 +99,52 @@ const pageStyles = {
 };
 
 // ============================================================================
+// HELPERY DO MAPOWANIA PÓL Z BACKENDU
+// ============================================================================
+
+const getBookImage = (book) =>
+  book?.coverImage ||
+  book?.image_url ||
+  book?.small_image_url ||
+  '/default-book-cover.jpg';
+
+const getBookGenres = (book) => book?.genres || book?.genre || [];
+
+const getBookRating = (book) =>
+  book?.averageRating ??
+  book?.average_rating ??
+  0;
+
+const getBookReviewCount = (book) =>
+  book?.reviewCount ??
+  book?.total_reviews ??
+  book?.ratings_count ??
+  book?.reviews_count ??
+  0;
+
+const isBookAvailable = (book) => {
+  if (typeof book?.available === 'boolean') return book.available;
+  if (typeof book?.available_copies === 'number') {
+    return book.available_copies > 0;
+  }
+  return true;
+};
+
+// ============================================================================
 // FEATURED CAROUSEL - Główny carousel z wyróżnionymi rekomendacjami
 // ============================================================================
 
 const FeaturedCarousel = ({ books, loading }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [direction, setDirection] = useState('right');
   const navigate = useNavigate();
 
   const nextSlide = useCallback(() => {
-    setDirection('right');
+    if (!books.length) return;
     setCurrentIndex((prev) => (prev + 1) % books.length);
   }, [books.length]);
 
   const prevSlide = () => {
-    setDirection('left');
+    if (!books.length) return;
     setCurrentIndex((prev) => (prev - 1 + books.length) % books.length);
   };
 
@@ -143,6 +169,9 @@ const FeaturedCarousel = ({ books, loading }) => {
   if (!books.length) return null;
 
   const currentBook = books[currentIndex];
+  const genres = getBookGenres(currentBook);
+  const available = isBookAvailable(currentBook);
+  const rating = getBookRating(currentBook);
 
   return (
     <Box sx={pageStyles.carouselContainer}>
@@ -170,11 +199,16 @@ const FeaturedCarousel = ({ books, loading }) => {
             overflow: 'hidden',
             cursor: 'pointer',
           }}
-          onClick={() => navigate(`/books/${currentBook._id}`)}
-        >
+         onClick={() => {
+    recommendationsAPI.reportInteraction(currentBook._id, 'click', {
+      source: 'featured',
+    });
+    navigate(`/books/${currentBook._id}`);
+  }}
+>
           <Box
             component="img"
-            src={currentBook.coverImage || '/default-book-cover.jpg'}
+            src={getBookImage(currentBook)}
             alt={currentBook.title}
             sx={{
               width: '100%',
@@ -283,7 +317,7 @@ const FeaturedCarousel = ({ books, loading }) => {
               >
                 <Box
                   component="img"
-                  src={currentBook.images?.[idx] || currentBook.coverImage}
+                  src={currentBook.images?.[idx] || getBookImage(currentBook)}
                   alt=""
                   sx={{
                     width: '100%',
@@ -314,7 +348,7 @@ const FeaturedCarousel = ({ books, loading }) => {
 
           {/* Tags */}
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2 }}>
-            {currentBook.genres?.slice(0, 4).map((genre) => (
+            {genres.slice(0, 4).map((genre) => (
               <Chip
                 key={genre}
                 label={genre}
@@ -340,13 +374,11 @@ const FeaturedCarousel = ({ books, loading }) => {
               <Typography
                 variant="body2"
                 sx={{
-                  color: currentBook.available
-                    ? COLORS.successGreen
-                    : '#ff6b6b',
+                  color: available ? COLORS.successGreen : '#ff6b6b',
                   fontWeight: 600,
                 }}
               >
-                {currentBook.available ? 'Dostępna' : 'Wypożyczona'}
+                {available ? 'Dostępna' : 'Wypożyczona'}
               </Typography>
               {currentBook.matchScore && (
                 <Typography variant="caption" sx={{ color: COLORS.accent }}>
@@ -355,7 +387,7 @@ const FeaturedCarousel = ({ books, loading }) => {
               )}
             </Box>
             <Rating
-              value={currentBook.averageRating || 0}
+              value={rating}
               readOnly
               precision={0.5}
               size="small"
@@ -505,7 +537,7 @@ const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
                 <Box
                   key={idx}
                   component="img"
-                  src={cover}
+                  src={cover || '/default-book-cover.jpg'}
                   alt=""
                   sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
@@ -651,7 +683,19 @@ const BecauseYouSection = ({ sourceBook, recommendations, loading }) => {
         }}
       >
         {recommendations.map((book) => (
-          <BookCard key={book._id} book={book} onClick={() => navigate(`/books/${book._id}`)} />
+          <BookCard
+  key={book._id}
+  book={book}
+  onClick={() => {
+    recommendationsAPI.reportInteraction(book._id, 'click', {
+      source: 'because-borrowed',
+      sourceBookId: sourceBook?._id,
+    });
+    navigate(`/books/${book._id}`);
+  }}
+/>
+
+
         ))}
       </Box>
 
@@ -681,11 +725,26 @@ const BookCard = ({ book, onClick, showScore = true }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [bookmarked, setBookmarked] = useState(book.onWishlist || false);
 
-  const handleBookmark = (e) => {
-    e.stopPropagation();
-    setBookmarked(!bookmarked);
-    // TODO: API call to toggle wishlist
-  };
+  const handleBookmark = async (e) => {
+  e.stopPropagation();
+  const newValue = !bookmarked;
+  setBookmarked(newValue);
+
+  try {
+    await recommendationsAPI.reportInteraction(
+      book._id,
+      newValue ? 'wishlist_add' : 'wishlist_remove'
+    );
+  } catch (err) {
+    console.error('Failed to report wishlist interaction', err);
+  }
+};
+
+
+  const genres = getBookGenres(book);
+  const available = isBookAvailable(book);
+  const rating = getBookRating(book);
+  const reviewCount = getBookReviewCount(book);
 
   return (
     <Card
@@ -719,7 +778,7 @@ const BookCard = ({ book, onClick, showScore = true }) => {
         <CardMedia
           component="img"
           height="240"
-          image={book.coverImage || '/default-book-cover.jpg'}
+          image={getBookImage(book)}
           alt={book.title}
           sx={{ objectFit: 'cover' }}
         />
@@ -750,7 +809,7 @@ const BookCard = ({ book, onClick, showScore = true }) => {
             {book.description?.slice(0, 100)}...
           </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-            {book.genres?.slice(0, 3).map((genre) => (
+            {genres.slice(0, 3).map((genre) => (
               <Chip
                 key={genre}
                 label={genre}
@@ -792,7 +851,7 @@ const BookCard = ({ book, onClick, showScore = true }) => {
             position: 'absolute',
             bottom: 8,
             left: 8,
-            bgcolor: book.available
+            bgcolor: available
               ? 'rgba(76, 175, 80, 0.9)'
               : 'rgba(244, 67, 54, 0.9)',
             color: 'white',
@@ -803,7 +862,7 @@ const BookCard = ({ book, onClick, showScore = true }) => {
             fontWeight: 600,
           }}
         >
-          {book.available ? 'Dostępna' : 'Wypożyczona'}
+          {available ? 'Dostępna' : 'Wypożyczona'}
         </Box>
 
         {/* Match score */}
@@ -850,7 +909,7 @@ const BookCard = ({ book, onClick, showScore = true }) => {
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
           <Rating
-            value={book.averageRating || 0}
+            value={rating}
             readOnly
             size="small"
             precision={0.5}
@@ -859,11 +918,8 @@ const BookCard = ({ book, onClick, showScore = true }) => {
               '& .MuiRating-iconFilled': { color: COLORS.goldAccent },
             }}
           />
-          <Typography
-            variant="caption"
-            sx={{ color: COLORS.textSecondary }}
-          >
-            ({book.reviewCount || 0})
+          <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
+            ({reviewCount})
           </Typography>
         </Box>
       </CardContent>
@@ -923,7 +979,7 @@ const DiscoveryQueue = ({ books, onExplore, loading }) => {
             <Box
               key={book._id}
               component="img"
-              src={book.coverImage || '/default-book-cover.jpg'}
+              src={getBookImage(book)}
               alt=""
               sx={{
                 width: 60,
@@ -1062,9 +1118,9 @@ const ModelMetricsPanel = ({ metrics, loading }) => {
           <MetricBox
             icon={<Psychology />}
             label="Model"
-            value="LightGCN"
+            value={metrics?.modelName || 'LightGCN'}
             format="text"
-            description="3 warstwy GCN"
+            description={`${metrics?.layers || 3} warstwy GCN`}
             color={COLORS.accent}
           />
         </Box>
@@ -1141,9 +1197,7 @@ const MetricBox = ({ icon, label, value, format, description, color }) => (
       variant="h4"
       sx={{ color: 'white', fontWeight: 700, fontFamily: 'monospace' }}
     >
-      {format === 'percent'
-        ? `${(value * 100).toFixed(2)}%`
-        : value}
+      {format === 'percent' ? `${(value * 100).toFixed(2)}%` : value}
     </Typography>
     <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
       {description}
@@ -1269,7 +1323,10 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
             <Box sx={{ position: 'relative', height: 140 }}>
               <Box
                 component="img"
-                src={author.latestBook?.coverImage || '/default-book-cover.jpg'}
+                src={
+                  getBookImage(author.latestBook || {}) ||
+                  '/default-book-cover.jpg'
+                }
                 alt=""
                 sx={{
                   width: '100%',
@@ -1279,7 +1336,7 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
                 }}
               />
               {/* Availability badge */}
-              {author.latestBook?.available && (
+              {isBookAvailable(author.latestBook || {}) && (
                 <Box
                   sx={{
                     position: 'absolute',
@@ -1304,7 +1361,9 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
 
             {/* Author info */}
             <Box sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Box
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}
+              >
                 <Box
                   sx={{
                     width: 32,
@@ -1321,7 +1380,10 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
                 >
                   {author.name.charAt(0)}
                 </Box>
-                <Typography variant="body2" sx={{ color: COLORS.textPrimary }}>
+                <Typography
+                  variant="body2"
+                  sx={{ color: COLORS.textPrimary }}
+                >
                   {author.name}
                 </Typography>
               </Box>
@@ -1377,9 +1439,7 @@ const BrowseOptions = ({ onNavigate }) => {
 
   return (
     <Box sx={{ mb: 6 }}>
-      <Typography sx={pageStyles.sectionTitle}>
-        Przeglądaj katalog
-      </Typography>
+      <Typography sx={pageStyles.sectionTitle}>Przeglądaj katalog</Typography>
       <Box
         sx={{
           display: 'grid',
@@ -1444,7 +1504,6 @@ const RecommendationsPage = () => {
         setLoading(true);
         setError(null);
 
-        // Fetch all data in parallel
         const [
           featuredRes,
           categoriesRes,
@@ -1461,7 +1520,6 @@ const RecommendationsPage = () => {
           recommendationsAPI.getModelMetrics(),
         ]);
 
-        // Handle results
         if (featuredRes.status === 'fulfilled') {
           setFeaturedBooks(featuredRes.value.data || []);
         }
@@ -1499,14 +1557,12 @@ const RecommendationsPage = () => {
     navigate('/discovery-queue');
   };
 
-  const handleRefresh = async () => {
-    setLoading(true);
-    // Re-fetch recommendations
+  const handleRefresh = () => {
     window.location.reload();
   };
 
   if (!user) {
-    return null; // Will redirect in useEffect
+    return null;
   }
 
   return (

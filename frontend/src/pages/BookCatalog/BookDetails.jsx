@@ -38,6 +38,7 @@ import {
 // Poprawione ścieżki importów dla lokalizacji pages/BookCatalog/
 import { booksAPI, loansAPI, reviewsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import recommendationsAPI from '../../services/recommendationsAPI';
 
 const BookDetails = () => {
   const { id } = useParams();
@@ -62,6 +63,13 @@ const BookDetails = () => {
 
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+
+  useEffect(() => {
+  if (book?._id) {
+    recommendationsAPI.reportInteraction(book._id, "view");
+  }
+}, [book?._id]);
 
   // Pobierz dane książki
   useEffect(() => {
@@ -108,7 +116,7 @@ const BookDetails = () => {
 
     try {
       setBorrowing(true);
-      await loansAPI.create({ book_id: id });
+await recommendationsAPI.reportInteraction(book, "borrow");
       
       // Odśwież dane książki
       const response = await booksAPI.getById(id);
@@ -122,12 +130,18 @@ const BookDetails = () => {
         severity: 'success'
       });
     } catch (err) {
-      console.error('Error borrowing book:', err);
-      setSnackbar({
-        open: true,
-        message: err.response?.data?.detail || 'Nie udało się wypożyczyć książki',
-        severity: 'error'
-      });
+  console.error(err);
+  const detail = err.response?.data?.detail;
+
+  if (Array.isArray(detail)) {
+    setError(detail.map(d => d.msg).join(', '));
+  } else if (typeof detail === 'string') {
+    setError(detail);
+  } else {
+    setError('Nie udało się wypożyczyć książki.');
+  }
+
+
     } finally {
       setBorrowing(false);
     }
