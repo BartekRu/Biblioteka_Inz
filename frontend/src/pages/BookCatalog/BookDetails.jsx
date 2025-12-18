@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Snackbar
+  Snackbar,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -33,7 +33,7 @@ import {
   LocalLibrary,
   Star,
   Send,
-  Delete
+  Delete,
 } from '@mui/icons-material';
 // Poprawione ścieżki importów dla lokalizacji pages/BookCatalog/
 import { booksAPI, loansAPI, reviewsAPI } from '../../services/api';
@@ -64,21 +64,19 @@ const BookDetails = () => {
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-
   useEffect(() => {
-  const reportView = async () => {
-    if (book?._id) {
-      try {
-        await recommendationsAPI.reportInteraction(book._id, "view");
-      } catch (err) {
-        console.error('Error reporting view:', err);
+    const reportView = async () => {
+      if (book?._id) {
+        try {
+          await recommendationsAPI.reportInteraction(book._id, 'view');
+        } catch (err) {
+          console.error('Error reporting view:', err);
+        }
       }
-    }
-  };
-  
-  reportView();
-}, [book?._id]);
+    };
 
+    reportView();
+  }, [book?._id]);
 
   // Pobierz dane książki
   useEffect(() => {
@@ -117,54 +115,54 @@ const BookDetails = () => {
   }, [id]);
 
   // Wypożycz książkę
-const handleBorrow = async () => {
-  if (!isAuthenticated) {
-    navigate('/login', { state: { from: `/books/${id}` } });
-    return;
-  }
-
-  try {
-    setBorrowing(true);
-    
-    // 1. NAJPIERW: Utwórz faktyczne wypożyczenie w bazie danych
-    await loansAPI.create({
-      book_id: book._id  // lub book.id, w zależności od backendu
-    });
-    
-    // 2. POTEM: Raportuj interakcję do systemu ML
-    await recommendationsAPI.reportInteraction(book._id, "borrow");
-    
-    // 3. Odśwież dane książki (available_copies się zmieni)
-    const response = await booksAPI.getById(id);
-    setBook(response.data);
-    
-    setBorrowDialog(false);
-    setBorrowSuccess(true);
-    setSnackbar({
-      open: true,
-      message: 'Książka została wypożyczona! Termin zwrotu: 30 dni.',
-      severity: 'success'
-    });
-  } catch (err) {
-    console.error(err);
-    const detail = err.response?.data?.detail;
-
-    if (Array.isArray(detail)) {
-      setError(detail.map(d => d.msg).join(', '));
-    } else if (typeof detail === 'string') {
-      setError(detail);
-    } else {
-      setError('Nie udało się wypożyczyć książki.');
+  const handleBorrow = async () => {
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: `/books/${id}` } });
+      return;
     }
-  } finally {
-    setBorrowing(false);
-  }
-};
+
+    try {
+      setBorrowing(true);
+
+      // 1. NAJPIERW: Utwórz faktyczne wypożyczenie w bazie danych
+      await loansAPI.create({
+        book_id: book._id, // lub book.id, w zależności od backendu
+      });
+
+      // 2. POTEM: Raportuj interakcję do systemu ML
+      await recommendationsAPI.reportInteraction(book._id, 'borrow');
+
+      // 3. Odśwież dane książki (available_copies się zmieni)
+      const response = await booksAPI.getById(id);
+      setBook(response.data);
+
+      setBorrowDialog(false);
+      setBorrowSuccess(true);
+      setSnackbar({
+        open: true,
+        message: 'Książka została wypożyczona! Termin zwrotu: 30 dni.',
+        severity: 'success',
+      });
+    } catch (err) {
+      console.error(err);
+      const detail = err.response?.data?.detail;
+
+      if (Array.isArray(detail)) {
+        setError(detail.map((d) => d.msg).join(', '));
+      } else if (typeof detail === 'string') {
+        setError(detail);
+      } else {
+        setError('Nie udało się wypożyczyć książki.');
+      }
+    } finally {
+      setBorrowing(false);
+    }
+  };
 
   // Dodaj recenzję
   const handleSubmitReview = async (e) => {
     e.preventDefault();
-    
+
     if (!isAuthenticated) {
       navigate('/login', { state: { from: `/books/${id}` } });
       return;
@@ -174,7 +172,7 @@ const handleBorrow = async () => {
       setSnackbar({
         open: true,
         message: 'Wybierz ocenę (1-5 gwiazdek)',
-        severity: 'warning'
+        severity: 'warning',
       });
       return;
     }
@@ -184,17 +182,17 @@ const handleBorrow = async () => {
       const response = await reviewsAPI.create({
         book_id: id,
         rating: newReview.rating,
-        content: newReview.content
+        content: newReview.content,
       });
-      
+
       setReviews([response.data, ...reviews]);
       setNewReview({ rating: 0, content: '' });
       setSnackbar({
         open: true,
         message: 'Recenzja została dodana!',
-        severity: 'success'
+        severity: 'success',
       });
-      
+
       // Odśwież książkę (średnia ocen mogła się zmienić)
       const bookResponse = await booksAPI.getById(id);
       setBook(bookResponse.data);
@@ -203,7 +201,7 @@ const handleBorrow = async () => {
       setSnackbar({
         open: true,
         message: err.response?.data?.detail || 'Nie udało się dodać recenzji',
-        severity: 'error'
+        severity: 'error',
       });
     } finally {
       setSubmittingReview(false);
@@ -214,18 +212,18 @@ const handleBorrow = async () => {
   const handleDeleteReview = async (reviewId) => {
     try {
       await reviewsAPI.delete(reviewId);
-      setReviews(reviews.filter(r => r._id !== reviewId));
+      setReviews(reviews.filter((r) => r._id !== reviewId));
       setSnackbar({
         open: true,
         message: 'Recenzja została usunięta',
-        severity: 'success'
+        severity: 'success',
       });
     } catch (err) {
       console.error('Error deleting review:', err);
       setSnackbar({
         open: true,
         message: 'Nie udało się usunąć recenzji',
-        severity: 'error'
+        severity: 'error',
       });
     }
   };
@@ -239,7 +237,9 @@ const handleBorrow = async () => {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <Box
+        sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}
+      >
         <CircularProgress />
       </Box>
     );
@@ -259,11 +259,7 @@ const handleBorrow = async () => {
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       {/* Przycisk powrotu */}
-      <Button
-        startIcon={<ArrowBack />}
-        onClick={() => navigate('/books')}
-        sx={{ mb: 3 }}
-      >
+      <Button startIcon={<ArrowBack />} onClick={() => navigate('/books')} sx={{ mb: 3 }}>
         Powrót do katalogu
       </Button>
 
@@ -282,12 +278,10 @@ const handleBorrow = async () => {
               borderRadius: 2,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
             }}
           >
-            {!getBookImage() && (
-              <MenuBook sx={{ fontSize: 100, color: 'rgba(255,255,255,0.5)' }} />
-            )}
+            {!getBookImage() && <MenuBook sx={{ fontSize: 100, color: 'rgba(255,255,255,0.5)' }} />}
           </Paper>
 
           {/* Przycisk wypożyczenia */}
@@ -304,9 +298,8 @@ const handleBorrow = async () => {
               {borrowSuccess
                 ? 'Wypożyczona!'
                 : book.available_copies > 0
-                  ? `Wypożycz (${book.available_copies} dostępnych)`
-                  : 'Brak dostępnych egzemplarzy'
-              }
+                ? `Wypożycz (${book.available_copies} dostępnych)`
+                : 'Brak dostępnych egzemplarzy'}
             </Button>
           </Box>
         </Grid>
@@ -360,7 +353,9 @@ const handleBorrow = async () => {
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <CalendarMonth sx={{ mr: 1, color: 'text.secondary' }} />
                     <Box>
-                      <Typography variant="caption" color="text.secondary">Rok wydania</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Rok wydania
+                      </Typography>
                       <Typography variant="body2">{book.publication_year}</Typography>
                     </Box>
                   </Box>
@@ -372,9 +367,15 @@ const handleBorrow = async () => {
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <Language sx={{ mr: 1, color: 'text.secondary' }} />
                     <Box>
-                      <Typography variant="caption" color="text.secondary">Język</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Język
+                      </Typography>
                       <Typography variant="body2">
-                        {book.language === 'en' ? 'Angielski' : book.language === 'pl' ? 'Polski' : book.language}
+                        {book.language === 'en'
+                          ? 'Angielski'
+                          : book.language === 'pl'
+                          ? 'Polski'
+                          : book.language}
                       </Typography>
                     </Box>
                   </Box>
@@ -386,7 +387,9 @@ const handleBorrow = async () => {
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
                     <MenuBook sx={{ mr: 1, color: 'text.secondary' }} />
                     <Box>
-                      <Typography variant="caption" color="text.secondary">Strony</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Strony
+                      </Typography>
                       <Typography variant="body2">{book.pages}</Typography>
                     </Box>
                   </Box>
@@ -396,7 +399,9 @@ const handleBorrow = async () => {
               {book.isbn && (
                 <Grid item xs={6} sm={4}>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">ISBN</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      ISBN
+                    </Typography>
                     <Typography variant="body2">{book.isbn}</Typography>
                   </Box>
                 </Grid>
@@ -405,7 +410,9 @@ const handleBorrow = async () => {
               {book.publisher && (
                 <Grid item xs={6} sm={4}>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">Wydawca</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Wydawca
+                    </Typography>
                     <Typography variant="body2">{book.publisher}</Typography>
                   </Box>
                 </Grid>
@@ -414,7 +421,9 @@ const handleBorrow = async () => {
               {book.location && (
                 <Grid item xs={6} sm={4}>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">Lokalizacja</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Lokalizacja
+                    </Typography>
                     <Typography variant="body2">{book.location}</Typography>
                   </Box>
                 </Grid>
@@ -425,7 +434,9 @@ const handleBorrow = async () => {
             {book.description && (
               <>
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="h6" gutterBottom>Opis</Typography>
+                <Typography variant="h6" gutterBottom>
+                  Opis
+                </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
                   {book.description}
                 </Typography>
@@ -451,7 +462,9 @@ const handleBorrow = async () => {
               </Typography>
               <Box component="form" onSubmit={handleSubmitReview}>
                 <Box sx={{ mb: 2 }}>
-                  <Typography component="legend" variant="body2">Twoja ocena:</Typography>
+                  <Typography component="legend" variant="body2">
+                    Twoja ocena:
+                  </Typography>
                   <Rating
                     value={newReview.rating}
                     onChange={(e, value) => setNewReview({ ...newReview, rating: value })}
@@ -501,7 +514,13 @@ const handleBorrow = async () => {
             {reviews.map((review) => (
               <Card key={review._id} sx={{ mb: 2 }}>
                 <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                    }}
+                  >
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                       <Avatar sx={{ mr: 2, bgcolor: 'primary.main' }}>
                         {(review.username || review.user_name || 'U')[0].toUpperCase()}
@@ -513,7 +532,7 @@ const handleBorrow = async () => {
                         <Rating value={review.rating} size="small" readOnly />
                       </Box>
                     </Box>
-                    
+
                     {/* Przycisk usunięcia (jeśli to recenzja użytkownika) */}
                     {user && (review.user_id === user._id || review.user_id === user.id) && (
                       <IconButton
@@ -532,11 +551,15 @@ const handleBorrow = async () => {
                     </Typography>
                   )}
 
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 1, display: 'block' }}
+                  >
                     {new Date(review.created_at).toLocaleDateString('pl-PL', {
                       year: 'numeric',
                       month: 'long',
-                      day: 'numeric'
+                      day: 'numeric',
                     })}
                   </Typography>
                 </CardContent>
@@ -550,20 +573,14 @@ const handleBorrow = async () => {
       <Dialog open={borrowDialog} onClose={() => setBorrowDialog(false)}>
         <DialogTitle>Potwierdź wypożyczenie</DialogTitle>
         <DialogContent>
-          <Typography>
-            Czy na pewno chcesz wypożyczyć książkę "{book.title}"?
-          </Typography>
+          <Typography>Czy na pewno chcesz wypożyczyć książkę "{book.title}"?</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
             Termin zwrotu: 30 dni od daty wypożyczenia
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBorrowDialog(false)}>Anuluj</Button>
-          <Button
-            variant="contained"
-            onClick={handleBorrow}
-            disabled={borrowing}
-          >
+          <Button variant="contained" onClick={handleBorrow} disabled={borrowing}>
             {borrowing ? 'Wypożyczanie...' : 'Wypożycz'}
           </Button>
         </DialogActions>

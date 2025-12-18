@@ -6,8 +6,8 @@ const API_BASE_URL = 'http://localhost:8000/v1';
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 });
 
 // Add token to requests if it exists
@@ -44,7 +44,7 @@ export const booksAPI = {
   create: (data) => api.post('/books/', data),
   update: (id, data) => api.put(`/books/${id}`, data),
   delete: (id) => api.delete(`/books/${id}`),
-  search: (query) => api.get('/books/', { params: { search: query } })
+  search: (query) => api.get('/books/', { params: { search: query } }),
 };
 
 // Auth API
@@ -55,12 +55,12 @@ export const authAPI = {
     formData.append('password', password);
     return api.post('/auth/token', formData, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
     });
   },
   register: (data) => api.post('/auth/register', data),
-  getMe: () => api.get('/auth/me')
+  getMe: () => api.get('/auth/me'),
 };
 
 // Users API
@@ -68,7 +68,7 @@ export const usersAPI = {
   getMe: () => api.get('/users/me'),
   updateMe: (data) => api.patch('/users/me', data),
   getRecommendations: (params) => api.get('/users/me/recommendations', { params }),
-  setPreferences: (data) => api.post('/users/me/preferences', data)
+  setPreferences: (data) => api.post('/users/me/preferences', data),
 };
 
 // Loans API
@@ -79,7 +79,7 @@ export const loansAPI = {
   create: (data) => api.post('/loans/', data),
   return: (id, data = {}) => api.post(`/loans/${id}/return`, data),
   renew: (id) => api.post(`/loans/${id}/renew`),
-  canBorrow: (bookId) => api.get(`/loans/can-borrow/${bookId}`)
+  canBorrow: (bookId) => api.get(`/loans/can-borrow/${bookId}`),
 };
 
 // Reviews API
@@ -88,60 +88,52 @@ export const reviewsAPI = {
   getMine: () => api.get('/reviews/me'),
   create: (data) => api.post('/reviews/', data),
   update: (id, data) => api.put(`/reviews/${id}`, data),
-  delete: (id) => api.delete(`/reviews/${id}`)
+  delete: (id) => api.delete(`/reviews/${id}`),
 };
 
 // ============================================================================
 // RECOMMENDATIONS API - dla strony rekomendacji
 // ============================================================================
 export const recommendationsAPI = {
-
-    // Rekomendacje LightGCN PRO dla zalogowanego użytkownika
-  getUserLightGCN: (limit = 20) =>
-    api.get('/recommendations/user-lightgcn', { params: { limit } }),
+  // Rekomendacje LightGCN PRO dla zalogowanego użytkownika
+  getUserLightGCN: (limit = 20) => api.get('/recommendations/user-lightgcn', { params: { limit } }),
 
   // Wyróżnione rekomendacje (carousel)
-  getFeatured: (limit = 10) => 
-    api.get('/recommendations/featured', { params: { limit } }),
+  getFeatured: (limit = 10) => api.get('/recommendations/featured', { params: { limit } }),
 
   // Kategorie z okładkami
-  getCategories: () => 
-    api.get('/recommendations/categories'),
+  getCategories: () => api.get('/recommendations/categories'),
 
   // Sekcje "Ponieważ wypożyczyłeś"
-  getBecauseYouBorrowed: (limit = 3) => 
+  getBecauseYouBorrowed: (limit = 3) =>
     api.get('/recommendations/because-borrowed', { params: { limit } }),
 
   // Kolejka odkryć
-  getDiscoveryQueue: (limit = 12) => 
+  getDiscoveryQueue: (limit = 12) =>
     api.get('/recommendations/discovery-queue', { params: { limit } }),
 
   // Znani autorzy
-  getKnownAuthors: (limit = 6) => 
-    api.get('/recommendations/known-authors', { params: { limit } }),
+  getKnownAuthors: (limit = 6) => api.get('/recommendations/known-authors', { params: { limit } }),
 
   // Metryki modelu
-  getModelMetrics: () => 
-    api.get('/recommendations/metrics'),
+  getModelMetrics: () => api.get('/recommendations/metrics'),
 
   // Podobne książki
-  getSimilar: (bookId, limit = 8) => 
+  getSimilar: (bookId, limit = 8) =>
     api.get(`/recommendations/similar/${bookId}`, { params: { limit } }),
 
   // Raportuj interakcję
-  reportInteraction: (bookId, interactionType, metadata = {}) => 
+  reportInteraction: (bookId, interactionType, metadata = {}) =>
     api.post('/recommendations/interaction', null, {
       params: {
         book_id: bookId,
-        interaction_type: interactionType
+        interaction_type: interactionType,
       },
-      data: metadata
+      data: metadata,
     }),
-    
 
   // Health check
-  getHealth: () => 
-    api.get('/recommendations/health')
+  getHealth: () => api.get('/recommendations/health'),
 };
 
 export default api;

@@ -29,6 +29,7 @@ router = APIRouter(prefix="/v1/recommendations", tags=["Recommendations"])
 #  HELPER FUNCTIONS (bez zmian)
 # ==========================================================
 
+
 def normalize_book(book: dict) -> dict:
     """Ujednolica nazwy pól w dokumentach książek"""
     if not book:
@@ -79,12 +80,13 @@ class InteractionIn(BaseModel):
 #  HEALTH - UPDATED
 # ==========================================================
 
+
 @router.get("/health")
 async def health_check():
     """Sprawdza status systemu rekomendacji"""
     try:
         stats = goodbooks_lgcn_service.get_stats()
-        
+
         return {
             "status": "healthy",
             "model_loaded": True,
@@ -106,6 +108,7 @@ async def health_check():
 #  METRICS - UPDATED
 # ==========================================================
 
+
 @router.get("/metrics")
 async def get_metrics():
     """Zwraca metryki modelu LightGCN + incremental stats"""
@@ -120,59 +123,51 @@ async def get_metrics():
         metrics_file = base_file
 
     base_metrics = {}
-    
+
     if metrics_file and metrics_file.exists():
         with open(metrics_file, "r", encoding="utf-8") as f:
             base_metrics = json.load(f)
 
         try:
-            last_updated = datetime.fromtimestamp(
-                metrics_file.stat().st_mtime
-            ).strftime("%Y-%m-%d")
+            last_updated = datetime.fromtimestamp(metrics_file.stat().st_mtime).strftime("%Y-%m-%d")
         except Exception:
             last_updated = datetime.now().strftime("%Y-%m-%d")
     else:
         last_updated = datetime.now().strftime("%Y-%m-%d")
-    
+
     # ⭐ Statystyki incremental z serwisu
     try:
         stats = goodbooks_lgcn_service.get_stats()
-        
+
         incremental_info = {
             "incrementalMode": stats.get("incremental_mode", True),
             "totalUsers": stats["total_users"],
             "newUsersCreated": stats["new_users_created"],
             "totalUpdates": stats["total_updates"],
-            "interactionsSinceCheckpoint": stats["interactions_since_checkpoint"]
+            "interactionsSinceCheckpoint": stats["interactions_since_checkpoint"],
         }
     except Exception as e:
-        incremental_info = {
-            "incrementalMode": False,
-            "error": str(e)
-        }
-    
+        incremental_info = {"incrementalMode": False, "error": str(e)}
+
     return {
         # Metryki bazowe
         "recall20": base_metrics.get("recall20", 0.1411),
         "ndcg20": base_metrics.get("ndcg20", 0.0842),
         "precision20": base_metrics.get("precision20", 0.0623),
         "coverage": base_metrics.get("coverage", 0.78),
-        
         "trainUsers": base_metrics.get("trainUsers", "53,175"),
         "trainItems": base_metrics.get("trainItems", "10,000"),
         "interactions": str(
             base_metrics.get("interactions_used", base_metrics.get("interactions", "932,940"))
         ),
-        
         "embeddingDim": str(base_metrics.get("embeddingDim", "64")),
         "epochs": str(base_metrics.get("epochs", "50")),
         "learningRate": str(base_metrics.get("learningRate", "0.001")),
         "lastUpdated": last_updated,
         "modelName": base_metrics.get("modelName", "LightGCN (goodbooks-10k)"),
         "layers": base_metrics.get("layers", 3),
-        
         # ⭐ Incremental stats
-        **incremental_info
+        **incremental_info,
     }
 
 
@@ -180,10 +175,10 @@ async def get_metrics():
 #  POZOSTAŁE ENDPOINTY (bez zmian)
 # ==========================================================
 
+
 @router.get("/featured")
 async def get_featured(
-    limit: int = Query(default=10, le=20),
-    current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=10, le=20), current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -192,22 +187,26 @@ async def get_featured(
 
     pipeline = [
         {"$match": {"user_id": ObjectId(user_id)}},
-        {"$lookup": {
-            "from": "books",
-            "localField": "book_id",
-            "foreignField": "_id",
-            "as": "book",
-        }},
-        {"$unwind": "$book"},
-        {"$addFields": {
-            "bookGenres": {
-                "$cond": [
-                    {"$isArray": "$book.genres"},
-                    "$book.genres",
-                    {"$cond": [{"$isArray": "$book.genre"}, "$book.genre", ["$book.genre"]]}
-                ]
+        {
+            "$lookup": {
+                "from": "books",
+                "localField": "book_id",
+                "foreignField": "_id",
+                "as": "book",
             }
-        }},
+        },
+        {"$unwind": "$book"},
+        {
+            "$addFields": {
+                "bookGenres": {
+                    "$cond": [
+                        {"$isArray": "$book.genres"},
+                        "$book.genres",
+                        {"$cond": [{"$isArray": "$book.genre"}, "$book.genre", ["$book.genre"]]},
+                    ]
+                }
+            }
+        },
         {"$unwind": "$bookGenres"},
         {"$group": {"_id": "$bookGenres", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
@@ -221,11 +220,13 @@ async def get_featured(
     books = []
 
     if favorite_genres:
-        cursor = db.books.find({
-            "genres": {"$in": favorite_genres},
-            "image_url": {"$exists": True, "$ne": None},
-            "goodbooks_book_id": {"$exists": True}
-        }).limit(limit)
+        cursor = db.books.find(
+            {
+                "genres": {"$in": favorite_genres},
+                "image_url": {"$exists": True, "$ne": None},
+                "goodbooks_book_id": {"$exists": True},
+            }
+        ).limit(limit)
 
         async for raw in cursor:
             book = normalize_book(serialize_doc(raw))
@@ -239,7 +240,7 @@ async def get_featured(
         query = {
             "_id": {"$nin": existing},
             "image_url": {"$exists": True, "$ne": None},
-            "goodbooks_book_id": {"$exists": True}
+            "goodbooks_book_id": {"$exists": True},
         }
 
         cursor = db.books.find(query).limit(limit - len(books))
@@ -257,45 +258,52 @@ async def get_categories():
     db = get_database()
 
     pipeline = [
-        {"$addFields": {
-            "genres": {
-                "$cond": [
-                    {"$isArray": "$genres"},
-                    "$genres",
-                    {"$cond": [{"$isArray": "$genre"}, "$genre", ["$genre"]]}
-                ]
+        {
+            "$addFields": {
+                "genres": {
+                    "$cond": [
+                        {"$isArray": "$genres"},
+                        "$genres",
+                        {"$cond": [{"$isArray": "$genre"}, "$genre", ["$genre"]]},
+                    ]
+                }
             }
-        }},
+        },
         {"$unwind": "$genres"},
-        {"$group": {
-            "_id": "$genres",
-            "count": {"$sum": 1},
-            "covers": {"$push": "$coverImage"},
-        }},
-        {"$project": {
-            "name": "$_id",
-            "count": 1,
-            "sampleCovers": {"$slice": ["$covers", 6]},
-        }},
+        {
+            "$group": {
+                "_id": "$genres",
+                "count": {"$sum": 1},
+                "covers": {"$push": "$coverImage"},
+            }
+        },
+        {
+            "$project": {
+                "name": "$_id",
+                "count": 1,
+                "sampleCovers": {"$slice": ["$covers", 6]},
+            }
+        },
         {"$sort": {"count": -1}},
         {"$limit": 10},
     ]
 
     out = []
     async for cat in db.books.aggregate(pipeline):
-        out.append({
-            "name": cat["name"],
-            "count": cat["count"],
-            "sampleCovers": [c for c in cat["sampleCovers"] if c],
-        })
+        out.append(
+            {
+                "name": cat["name"],
+                "count": cat["count"],
+                "sampleCovers": [c for c in cat["sampleCovers"] if c],
+            }
+        )
 
     return out
 
 
 @router.get("/because-borrowed")
 async def get_because_borrowed(
-    limit: int = Query(default=3, le=5),
-    current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=3, le=5), current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -337,22 +345,23 @@ async def get_because_borrowed(
             recs.append(b)
 
         if recs:
-            sections.append({
-                "sourceBook": {
-                    "_id": source["_id"],
-                    "title": source["title"],
-                    "author": source.get("author", "")
-                },
-                "recommendations": recs
-            })
+            sections.append(
+                {
+                    "sourceBook": {
+                        "_id": source["_id"],
+                        "title": source["title"],
+                        "author": source.get("author", ""),
+                    },
+                    "recommendations": recs,
+                }
+            )
 
     return sections
 
 
 @router.get("/discovery-queue")
 async def get_discovery_queue(
-    limit: int = Query(default=12, le=30),
-    current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=12, le=30), current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -362,10 +371,7 @@ async def get_discovery_queue(
     query = {"_id": {"$nin": borrowed}} if borrowed else {}
 
     books = []
-    async for raw in db.books.aggregate([
-        {"$match": query},
-        {"$sample": {"size": limit}}
-    ]):
+    async for raw in db.books.aggregate([{"$match": query}, {"$sample": {"size": limit}}]):
         b = normalize_book(serialize_doc(raw))
         b["matchScore"] = round(random.uniform(0.5, 0.85), 2)
         books.append(b)
@@ -375,28 +381,26 @@ async def get_discovery_queue(
 
 @router.get("/known-authors")
 async def get_known_authors(
-    limit: int = Query(default=6, le=10),
-    current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=6, le=10), current_user: dict = Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
 
     pipeline = [
         {"$match": {"user_id": ObjectId(user_id)}},
-        {"$lookup": {
-            "from": "books",
-            "localField": "book_id",
-            "foreignField": "_id",
-            "as": "book"
-        }},
+        {
+            "$lookup": {
+                "from": "books",
+                "localField": "book_id",
+                "foreignField": "_id",
+                "as": "book",
+            }
+        },
         {"$unwind": "$book"},
-        {"$group": {
-            "_id": "$book.author",
-            "count": {"$sum": 1}
-        }},
+        {"$group": {"_id": "$book.author", "count": {"$sum": 1}}},
         {"$match": {"_id": {"$ne": None}}},
         {"$sort": {"count": -1}},
-        {"$limit": limit}
+        {"$limit": limit},
     ]
 
     authors = []
@@ -404,22 +408,21 @@ async def get_known_authors(
     async for doc in db.loans.aggregate(pipeline):
         author_name = doc["_id"]
 
-        latest = await db.books.find_one(
-            {"author": author_name},
-            sort=[("publication_year", -1)]
-        )
+        latest = await db.books.find_one({"author": author_name}, sort=[("publication_year", -1)])
 
         if latest:
             latest = normalize_book(serialize_doc(latest))
-            authors.append({
-                "name": author_name,
-                "latestBook": {
-                    "_id": latest["_id"],
-                    "title": latest.get("title"),
-                    "coverImage": latest.get("coverImage"),
-                    "available": latest.get("available", True)
+            authors.append(
+                {
+                    "name": author_name,
+                    "latestBook": {
+                        "_id": latest["_id"],
+                        "title": latest.get("title"),
+                        "coverImage": latest.get("coverImage"),
+                        "available": latest.get("available", True),
+                    },
                 }
-            })
+            )
 
     return authors
 
@@ -440,10 +443,7 @@ async def get_similar(book_id: str, limit: int = Query(default=8, le=20)):
     genres = source["genres"]
     author = source.get("author")
 
-    query = {
-        "_id": {"$ne": ObjectId(book_id)},
-        "$or": []
-    }
+    query = {"_id": {"$ne": ObjectId(book_id)}, "$or": []}
 
     if genres:
         query["$or"].append({"genres": {"$in": genres}})
@@ -472,11 +472,9 @@ async def get_similar(book_id: str, limit: int = Query(default=8, le=20)):
 #  ⭐ INTERACTIONS - UPDATED WITH INCREMENTAL LEARNING
 # ==========================================================
 
+
 @router.post("/interaction")
-async def report_interaction(
-    interaction: InteractionIn,
-    current_user = Depends(get_current_user)
-):
+async def report_interaction(interaction: InteractionIn, current_user=Depends(get_current_user)):
     """
     Raportuj interakcję + aktualizuj embeddingi w czasie rzeczywistym!
     """
@@ -502,7 +500,7 @@ async def report_interaction(
         "book_id": bid,
         "type": interaction.interaction_type,
         "timestamp": datetime.now(),
-        "metadata": interaction.metadata or {}
+        "metadata": interaction.metadata or {},
     }
 
     await db.interactions.insert_one(doc)
@@ -510,40 +508,41 @@ async def report_interaction(
     # 2. ⭐ AKTUALIZUJ EMBEDDINGI
     try:
         book = await db.books.find_one({"_id": bid})
-        
+
         if book and book.get("goodbooks_book_id"):
             goodbooks_id = int(book["goodbooks_book_id"])
-            
+
             # ⭐ Process interaction z nowym API
             update_result = goodbooks_lgcn_service.process_interaction(
                 mongo_user_id=str(uid),
                 goodbooks_book_id=goodbooks_id,
-                interaction_type=interaction.interaction_type
+                interaction_type=interaction.interaction_type,
             )
-            
+
             return {
                 "status": "recorded",
                 "interaction_saved": True,
                 "embedding_updated": update_result.get("success", False),
-                "update_info": update_result if update_result.get("success") else None
+                "update_info": update_result if update_result.get("success") else None,
             }
         else:
             return {
                 "status": "recorded",
                 "interaction_saved": True,
                 "embedding_updated": False,
-                "reason": "book_not_in_goodbooks"
+                "reason": "book_not_in_goodbooks",
             }
-            
+
     except Exception as e:
         import traceback
+
         traceback.print_exc()
-        
+
         return {
             "status": "recorded",
             "interaction_saved": True,
             "embedding_updated": False,
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -551,10 +550,11 @@ async def report_interaction(
 #  ⭐ USER LIGHTGCN - UPDATED WITH DYNAMIC EMBEDDINGS
 # ==========================================================
 
+
 @router.get("/user-lightgcn")
 async def get_user_lightgcn_recommendations(
     limit: int = Query(default=20, le=50),
-    current_user = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """
     Rekomendacje z DYNAMIC EMBEDDINGS!
@@ -577,7 +577,7 @@ async def get_user_lightgcn_recommendations(
         book_id = loan.get("book_id")
         if not book_id:
             continue
-        
+
         borrowed_mongo_ids.add(str(book_id))
 
         book = await db.books.find_one({"_id": book_id})
@@ -597,17 +597,17 @@ async def get_user_lightgcn_recommendations(
             mongo_user_id=str(uid),
             n=limit * 2,
             exclude_goodbooks_ids=borrowed_goodbooks_ids,
-            use_cache=True
+            use_cache=True,
         )
-        
+
     except Exception as e:
         import traceback
+
         traceback.print_exc()
-        
+
         # Fallback do starego API
         rec_goodbooks_ids = goodbooks_lgcn_service.recommend_for_goodbooks_ids(
-            list(borrowed_goodbooks_ids) if borrowed_goodbooks_ids else [],
-            top_k=limit * 2
+            list(borrowed_goodbooks_ids) if borrowed_goodbooks_ids else [], top_k=limit * 2
         )
 
     # 3. Mapowanie do MongoDB books
@@ -617,7 +617,7 @@ async def get_user_lightgcn_recommendations(
     for gb_id in rec_goodbooks_ids:
         if len(results) >= limit:
             break
-        
+
         if gb_id in seen or gb_id in borrowed_goodbooks_ids:
             continue
         seen.add(gb_id)
@@ -628,7 +628,7 @@ async def get_user_lightgcn_recommendations(
 
         if not book:
             continue
-        
+
         if str(book["_id"]) in borrowed_mongo_ids:
             continue
 
@@ -642,56 +642,54 @@ async def get_user_lightgcn_recommendations(
 #  ⭐ DEBUG ENDPOINTS
 # ==========================================================
 
+
 @router.get("/debug/user-stats/{user_id}")
-async def get_user_debug_stats(
-    user_id: str,
-    current_user = Depends(get_current_user)
-):
+async def get_user_debug_stats(user_id: str, current_user=Depends(get_current_user)):
     """Debug - statystyki użytkownika"""
     current_uid = str(getattr(current_user, "id", ""))
     is_admin = getattr(current_user, "role", "") == "admin"
-    
+
     if user_id != current_uid and not is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
-    
+
     try:
         has_embedding = user_id in goodbooks_lgcn_service.mongo_user_to_idx
-        
+
         user_stats = {
             "user_id": user_id,
             "has_embedding": has_embedding,
             "user_idx": goodbooks_lgcn_service.mongo_user_to_idx.get(user_id),
             "is_new_user": (
-                has_embedding and 
-                goodbooks_lgcn_service.mongo_user_to_idx[user_id] >= goodbooks_lgcn_service.num_users
-            )
+                has_embedding
+                and goodbooks_lgcn_service.mongo_user_to_idx[user_id]
+                >= goodbooks_lgcn_service.num_users
+            ),
         }
-        
+
         if has_embedding:
             user_idx = goodbooks_lgcn_service.mongo_user_to_idx[user_id]
             embedding = goodbooks_lgcn_service.user_emb[user_idx]
-            
+
             import numpy as np
+
             user_stats["embedding_norm"] = float(np.linalg.norm(embedding))
             user_stats["embedding_mean"] = float(np.mean(embedding))
             user_stats["embedding_std"] = float(np.std(embedding))
-        
+
         return user_stats
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/debug/service-stats")
-async def get_service_stats(
-    current_user = Depends(get_current_user)
-):
+async def get_service_stats(current_user=Depends(get_current_user)):
     """Debug - statystyki serwisu (admin only)"""
     is_admin = getattr(current_user, "role", "") == "admin"
-    
+
     if not is_admin:
         raise HTTPException(status_code=403, detail="Admin only")
-    
+
     try:
         return goodbooks_lgcn_service.get_stats()
     except Exception as e:
