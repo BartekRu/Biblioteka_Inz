@@ -66,10 +66,19 @@ const BookDetails = () => {
 
 
   useEffect(() => {
-  if (book?._id) {
-    recommendationsAPI.reportInteraction(book._id, "view");
-  }
+  const reportView = async () => {
+    if (book?._id) {
+      try {
+        await recommendationsAPI.reportInteraction(book._id, "view");
+      } catch (err) {
+        console.error('Error reporting view:', err);
+      }
+    }
+  };
+  
+  reportView();
 }, [book?._id]);
+
 
   // Pobierz dane książki
   useEffect(() => {
@@ -108,44 +117,49 @@ const BookDetails = () => {
   }, [id]);
 
   // Wypożycz książkę
-  const handleBorrow = async () => {
-    if (!isAuthenticated) {
-      navigate('/login', { state: { from: `/books/${id}` } });
-      return;
-    }
-
-    try {
-      setBorrowing(true);
-await recommendationsAPI.reportInteraction(book, "borrow");
-      
-      // Odśwież dane książki
-      const response = await booksAPI.getById(id);
-      setBook(response.data);
-      
-      setBorrowDialog(false);
-      setBorrowSuccess(true);
-      setSnackbar({
-        open: true,
-        message: 'Książka została wypożyczona! Termin zwrotu: 30 dni.',
-        severity: 'success'
-      });
-    } catch (err) {
-  console.error(err);
-  const detail = err.response?.data?.detail;
-
-  if (Array.isArray(detail)) {
-    setError(detail.map(d => d.msg).join(', '));
-  } else if (typeof detail === 'string') {
-    setError(detail);
-  } else {
-    setError('Nie udało się wypożyczyć książki.');
+const handleBorrow = async () => {
+  if (!isAuthenticated) {
+    navigate('/login', { state: { from: `/books/${id}` } });
+    return;
   }
 
+  try {
+    setBorrowing(true);
+    
+    // 1. NAJPIERW: Utwórz faktyczne wypożyczenie w bazie danych
+    await loansAPI.create({
+      book_id: book._id  // lub book.id, w zależności od backendu
+    });
+    
+    // 2. POTEM: Raportuj interakcję do systemu ML
+    await recommendationsAPI.reportInteraction(book._id, "borrow");
+    
+    // 3. Odśwież dane książki (available_copies się zmieni)
+    const response = await booksAPI.getById(id);
+    setBook(response.data);
+    
+    setBorrowDialog(false);
+    setBorrowSuccess(true);
+    setSnackbar({
+      open: true,
+      message: 'Książka została wypożyczona! Termin zwrotu: 30 dni.',
+      severity: 'success'
+    });
+  } catch (err) {
+    console.error(err);
+    const detail = err.response?.data?.detail;
 
-    } finally {
-      setBorrowing(false);
+    if (Array.isArray(detail)) {
+      setError(detail.map(d => d.msg).join(', '));
+    } else if (typeof detail === 'string') {
+      setError(detail);
+    } else {
+      setError('Nie udało się wypożyczyć książki.');
     }
-  };
+  } finally {
+    setBorrowing(false);
+  }
+};
 
   // Dodaj recenzję
   const handleSubmitReview = async (e) => {

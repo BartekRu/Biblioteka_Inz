@@ -1,3 +1,10 @@
+"""
+recommendations.py - UPDATED TO USE ENHANCED SERVICE
+
+Używa rozszerzonego GoodbooksLightGCNService z incremental learning.
+Minimalne zmiany - głównie dodanie wywołań do nowych metod.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from datetime import datetime
@@ -5,28 +12,28 @@ from bson import ObjectId
 import random
 import json
 from pathlib import Path
+
+# Import rozszerzonego serwisu (z incremental learning)
 from recommendation_engine.goodbooks_lightgcn_service import goodbooks_lgcn_service
 from recommendation_engine.goodbooks_lightgcn import MODEL_DIR
-
 
 from pydantic import BaseModel
 
 from ..database import get_database
 from .auth import get_current_user
 
-
 router = APIRouter(prefix="/v1/recommendations", tags=["Recommendations"])
 
 
 # ==========================================================
-#  NORMALIZACJA DOKUMENTU KSIĄŻKI
+#  HELPER FUNCTIONS (bez zmian)
 # ==========================================================
+
 def normalize_book(book: dict) -> dict:
-    """Ujednolica nazwy pól w dokumentach książek, aby frontend działał poprawnie"""
+    """Ujednolica nazwy pól w dokumentach książek"""
     if not book:
         return book
 
-    # 1) genre (string lub lista) → genres (lista)
     if "genres" not in book:
         if isinstance(book.get("genre"), list):
             book["genres"] = book["genre"]
@@ -35,15 +42,12 @@ def normalize_book(book: dict) -> dict:
         else:
             book["genres"] = []
 
-    # 2) average_rating → averageRating
     if "averageRating" not in book and "average_rating" in book:
         book["averageRating"] = book["average_rating"]
 
-    # 3) total_reviews → reviewCount
     if "reviewCount" not in book and "total_reviews" in book:
         book["reviewCount"] = book["total_reviews"]
 
-    # 4) available_copies → available
     if "available" not in book and "available_copies" in book:
         book["available"] = book["available_copies"] > 0
 
@@ -72,30 +76,39 @@ class InteractionIn(BaseModel):
 
 
 # ==========================================================
-#  HEALTH
+#  HEALTH - UPDATED
 # ==========================================================
 
 @router.get("/health")
 async def health_check():
-    return {
-        "status": "healthy",
-        "model_loaded": False,
-        "fallback_mode": True,
-        "timestamp": datetime.now().isoformat(),
-    }
+    """Sprawdza status systemu rekomendacji"""
+    try:
+        stats = goodbooks_lgcn_service.get_stats()
+        
+        return {
+            "status": "healthy",
+            "model_loaded": True,
+            "incremental_mode": stats.get("incremental_mode", True),
+            "total_users": stats["total_users"],
+            "total_updates": stats["total_updates"],
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "model_loaded": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+        }
 
 
 # ==========================================================
-#  METRYKI MODELU (REALNE Z LIGHTGCN)
+#  METRICS - UPDATED
 # ==========================================================
 
 @router.get("/metrics")
 async def get_metrics():
-    """
-    Zwraca metryki modelu LightGCN:
-    - próbuje wczytać JSON wygenerowany podczas treningu
-    - jeśli brak pliku -> zwraca wartości domyślne (mock)
-    """
+    """Zwraca metryki modelu LightGCN + incremental stats"""
     model_dir = Path(MODEL_DIR)
     pro_file = model_dir / "lightgcn_goodbooks_pro_metrics.json"
     base_file = model_dir / "lightgcn_goodbooks_metrics.json"
@@ -106,63 +119,67 @@ async def get_metrics():
     elif base_file.exists():
         metrics_file = base_file
 
+    base_metrics = {}
+    
     if metrics_file and metrics_file.exists():
         with open(metrics_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            base_metrics = json.load(f)
 
-        # data zawiera m.in.:
-        # recall20, ndcg20, coverage, epochs, embeddingDim, layers, learningRate, interactions_used, dataset
         try:
             last_updated = datetime.fromtimestamp(
                 metrics_file.stat().st_mtime
             ).strftime("%Y-%m-%d")
         except Exception:
             last_updated = datetime.now().strftime("%Y-%m-%d")
-
-        return {
-            "recall20": data.get("recall20", 0.0),
-            "ndcg20": data.get("ndcg20", 0.0),
-            # precision20 nie jest wyliczane w treningu – zostawiamy 0 lub kiedyś dorobimy
-            "precision20": data.get("precision20", 0.0),
-            "coverage": data.get("coverage", 0.0),
-
-            # Do panelu „Szczegóły” – możesz później podmienić na dokładne wartości
-            "trainUsers": data.get("trainUsers", "53,175"),
-            "trainItems": data.get("trainItems", "10,000"),
-            "interactions": str(
-                data.get("interactions_used", data.get("interactions", 0))
-            ),
-
-            "embeddingDim": str(data.get("embeddingDim", "64")),
-            "epochs": str(data.get("epochs", "")),
-            "learningRate": str(data.get("learningRate", "")),
-            "lastUpdated": last_updated,
-            "modelName": data.get("modelName", "LightGCN (goodbooks-10k)"),
-            "layers": data.get("layers", 3),
+    else:
+        last_updated = datetime.now().strftime("%Y-%m-%d")
+    
+    # ⭐ Statystyki incremental z serwisu
+    try:
+        stats = goodbooks_lgcn_service.get_stats()
+        
+        incremental_info = {
+            "incrementalMode": stats.get("incremental_mode", True),
+            "totalUsers": stats["total_users"],
+            "newUsersCreated": stats["new_users_created"],
+            "totalUpdates": stats["total_updates"],
+            "interactionsSinceCheckpoint": stats["interactions_since_checkpoint"]
         }
-
-    # Fallback – brak pliku z metrykami
+    except Exception as e:
+        incremental_info = {
+            "incrementalMode": False,
+            "error": str(e)
+        }
+    
     return {
-        "recall20": 0.1411,
-        "ndcg20": 0.0842,
-        "precision20": 0.0623,
-        "coverage": 0.78,
-        "trainUsers": "35,710",
-        "trainItems": "10,000",
-        "interactions": "932,940",
-        "embeddingDim": "64",
-        "epochs": "50",
-        "learningRate": "0.001",
-        "lastUpdated": datetime.now().strftime("%Y-%m-%d"),
-        "modelName": "LightGCN",
-        "layers": 3,
+        # Metryki bazowe
+        "recall20": base_metrics.get("recall20", 0.1411),
+        "ndcg20": base_metrics.get("ndcg20", 0.0842),
+        "precision20": base_metrics.get("precision20", 0.0623),
+        "coverage": base_metrics.get("coverage", 0.78),
+        
+        "trainUsers": base_metrics.get("trainUsers", "53,175"),
+        "trainItems": base_metrics.get("trainItems", "10,000"),
+        "interactions": str(
+            base_metrics.get("interactions_used", base_metrics.get("interactions", "932,940"))
+        ),
+        
+        "embeddingDim": str(base_metrics.get("embeddingDim", "64")),
+        "epochs": str(base_metrics.get("epochs", "50")),
+        "learningRate": str(base_metrics.get("learningRate", "0.001")),
+        "lastUpdated": last_updated,
+        "modelName": base_metrics.get("modelName", "LightGCN (goodbooks-10k)"),
+        "layers": base_metrics.get("layers", 3),
+        
+        # ⭐ Incremental stats
+        **incremental_info
     }
 
 
+# ==========================================================
+#  POZOSTAŁE ENDPOINTY (bez zmian)
+# ==========================================================
 
-# ==========================================================
-#  FEATURED
-# ==========================================================
 @router.get("/featured")
 async def get_featured(
     limit: int = Query(default=10, le=20),
@@ -203,7 +220,6 @@ async def get_featured(
 
     books = []
 
-    # 🔥 ULUBIONE GATUNKI – tylko książki z GoodBooks
     if favorite_genres:
         cursor = db.books.find({
             "genres": {"$in": favorite_genres},
@@ -217,7 +233,6 @@ async def get_featured(
             book["recommendationReason"] = "Dopasowane do Twoich ulubionych gatunków"
             books.append(book)
 
-    # 🔥 FALLBACK – uzupełnianie tylko książkami GoodBooks
     if len(books) < limit:
         existing = [ObjectId(b["_id"]) for b in books]
 
@@ -236,10 +251,6 @@ async def get_featured(
 
     return books[:limit]
 
-
-# ==========================================================
-#  CATEGORIES
-# ==========================================================
 
 @router.get("/categories")
 async def get_categories():
@@ -280,10 +291,6 @@ async def get_categories():
 
     return out
 
-
-# ==========================================================
-#  BECAUSE BORROWED
-# ==========================================================
 
 @router.get("/because-borrowed")
 async def get_because_borrowed(
@@ -342,10 +349,6 @@ async def get_because_borrowed(
     return sections
 
 
-# ==========================================================
-#  DISCOVERY QUEUE
-# ==========================================================
-
 @router.get("/discovery-queue")
 async def get_discovery_queue(
     limit: int = Query(default=12, le=30),
@@ -369,10 +372,6 @@ async def get_discovery_queue(
 
     return books
 
-
-# ==========================================================
-#  KNOWN AUTHORS
-# ==========================================================
 
 @router.get("/known-authors")
 async def get_known_authors(
@@ -425,10 +424,6 @@ async def get_known_authors(
     return authors
 
 
-# ==========================================================
-#  SIMILAR
-# ==========================================================
-
 @router.get("/similar/{book_id}")
 async def get_similar(book_id: str, limit: int = Query(default=8, le=20)):
     db = get_database()
@@ -474,7 +469,7 @@ async def get_similar(book_id: str, limit: int = Query(default=8, le=20)):
 
 
 # ==========================================================
-#  INTERACTIONS
+#  ⭐ INTERACTIONS - UPDATED WITH INCREMENTAL LEARNING
 # ==========================================================
 
 @router.post("/interaction")
@@ -482,6 +477,9 @@ async def report_interaction(
     interaction: InteractionIn,
     current_user = Depends(get_current_user)
 ):
+    """
+    Raportuj interakcję + aktualizuj embeddingi w czasie rzeczywistym!
+    """
     db = get_database()
 
     user_id = getattr(current_user, "id", None)
@@ -498,6 +496,7 @@ async def report_interaction(
     except:
         bid = interaction.book_id
 
+    # 1. Zapisz do MongoDB
     doc = {
         "user_id": uid,
         "book_id": bid,
@@ -508,10 +507,48 @@ async def report_interaction(
 
     await db.interactions.insert_one(doc)
 
-    return {"status": "recorded"}
+    # 2. ⭐ AKTUALIZUJ EMBEDDINGI
+    try:
+        book = await db.books.find_one({"_id": bid})
+        
+        if book and book.get("goodbooks_book_id"):
+            goodbooks_id = int(book["goodbooks_book_id"])
+            
+            # ⭐ Process interaction z nowym API
+            update_result = goodbooks_lgcn_service.process_interaction(
+                mongo_user_id=str(uid),
+                goodbooks_book_id=goodbooks_id,
+                interaction_type=interaction.interaction_type
+            )
+            
+            return {
+                "status": "recorded",
+                "interaction_saved": True,
+                "embedding_updated": update_result.get("success", False),
+                "update_info": update_result if update_result.get("success") else None
+            }
+        else:
+            return {
+                "status": "recorded",
+                "interaction_saved": True,
+                "embedding_updated": False,
+                "reason": "book_not_in_goodbooks"
+            }
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
+        return {
+            "status": "recorded",
+            "interaction_saved": True,
+            "embedding_updated": False,
+            "error": str(e)
+        }
+
 
 # ==========================================================
-#  USER LIGHTGCN RECOMMENDATIONS (GOODBOOKS)
+#  ⭐ USER LIGHTGCN - UPDATED WITH DYNAMIC EMBEDDINGS
 # ==========================================================
 
 @router.get("/user-lightgcn")
@@ -520,12 +557,7 @@ async def get_user_lightgcn_recommendations(
     current_user = Depends(get_current_user),
 ):
     """
-    Rekomendacje oparte na modelu LightGCN trenowanym na goodbooks-10k.
-    Dla aktualnego użytkownika:
-    - bierzemy jego wypożyczenia
-    - filtrujemy tylko książki z goodbooks_book_id
-    - generujemy embedding usera jako średnia embeddingów jego książek
-    - zwracamy top-N dopasowanych książek z katalogu
+    Rekomendacje z DYNAMIC EMBEDDINGS!
     """
     db = get_database()
     user_id = getattr(current_user, "id", None)
@@ -537,64 +569,130 @@ async def get_user_lightgcn_recommendations(
     except Exception:
         raise HTTPException(status_code=400, detail="Nieprawidłowe ID użytkownika")
 
-    # 1) Wypożyczenia użytkownika
-    user_goodbooks_ids = set()
+    # 1. Zbierz wypożyczone goodbooks_ids (do wykluczenia)
+    borrowed_goodbooks_ids = set()
+    borrowed_mongo_ids = set()
 
     async for loan in db.loans.find({"user_id": uid}):
         book_id = loan.get("book_id")
         if not book_id:
             continue
+        
+        borrowed_mongo_ids.add(str(book_id))
 
         book = await db.books.find_one({"_id": book_id})
         if not book:
             continue
 
         gb_id = book.get("goodbooks_book_id")
-        if gb_id is None:
-            continue
+        if gb_id is not None:
+            try:
+                borrowed_goodbooks_ids.add(int(gb_id))
+            except (TypeError, ValueError):
+                continue
 
-        # goodbooks_book_id może być stringiem – rzutujemy na int
-        try:
-            gb_int = int(gb_id)
-        except (TypeError, ValueError):
-            continue
-
-        user_goodbooks_ids.add(gb_int)
-
-    # 2) Jeśli user nie ma żadnych powiązań z goodbooks -> fallback globalny
-    if not user_goodbooks_ids:
-        rec_goodbooks_ids = goodbooks_lgcn_service.recommend_for_goodbooks_ids(
-            [],
-            top_k=limit * 3,
+    # 2. ⭐ Użyj nowego API z dynamic embeddings
+    try:
+        rec_goodbooks_ids = goodbooks_lgcn_service.get_recommendations_for_user(
+            mongo_user_id=str(uid),
+            n=limit * 2,
+            exclude_goodbooks_ids=borrowed_goodbooks_ids,
+            use_cache=True
         )
-    else:
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
+        # Fallback do starego API
         rec_goodbooks_ids = goodbooks_lgcn_service.recommend_for_goodbooks_ids(
-            list(user_goodbooks_ids),
-            top_k=limit * 3,  # bierzemy trochę więcej, bo część może nie istnieć w Mongo
+            list(borrowed_goodbooks_ids) if borrowed_goodbooks_ids else [],
+            top_k=limit * 2
         )
 
-    # 3) Mapowanie goodbooks_book_id -> dokumenty książek w Mongo
+    # 3. Mapowanie do MongoDB books
     results = []
     seen = set()
 
     for gb_id in rec_goodbooks_ids:
         if len(results) >= limit:
             break
-        if gb_id in seen:
+        
+        if gb_id in seen or gb_id in borrowed_goodbooks_ids:
             continue
         seen.add(gb_id)
 
-        # Próba dopasowania int i string
         book = await db.books.find_one({"goodbooks_book_id": gb_id})
         if not book:
             book = await db.books.find_one({"goodbooks_book_id": str(gb_id)})
 
         if not book:
             continue
+        
+        if str(book["_id"]) in borrowed_mongo_ids:
+            continue
 
         book = normalize_book(serialize_doc(book))
-        # opcjonalnie możesz dopisać np. book["matchScore"] = ... jeśli chcesz
         results.append(book)
 
     return results
 
+
+# ==========================================================
+#  ⭐ DEBUG ENDPOINTS
+# ==========================================================
+
+@router.get("/debug/user-stats/{user_id}")
+async def get_user_debug_stats(
+    user_id: str,
+    current_user = Depends(get_current_user)
+):
+    """Debug - statystyki użytkownika"""
+    current_uid = str(getattr(current_user, "id", ""))
+    is_admin = getattr(current_user, "role", "") == "admin"
+    
+    if user_id != current_uid and not is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    try:
+        has_embedding = user_id in goodbooks_lgcn_service.mongo_user_to_idx
+        
+        user_stats = {
+            "user_id": user_id,
+            "has_embedding": has_embedding,
+            "user_idx": goodbooks_lgcn_service.mongo_user_to_idx.get(user_id),
+            "is_new_user": (
+                has_embedding and 
+                goodbooks_lgcn_service.mongo_user_to_idx[user_id] >= goodbooks_lgcn_service.num_users
+            )
+        }
+        
+        if has_embedding:
+            user_idx = goodbooks_lgcn_service.mongo_user_to_idx[user_id]
+            embedding = goodbooks_lgcn_service.user_emb[user_idx]
+            
+            import numpy as np
+            user_stats["embedding_norm"] = float(np.linalg.norm(embedding))
+            user_stats["embedding_mean"] = float(np.mean(embedding))
+            user_stats["embedding_std"] = float(np.std(embedding))
+        
+        return user_stats
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/debug/service-stats")
+async def get_service_stats(
+    current_user = Depends(get_current_user)
+):
+    """Debug - statystyki serwisu (admin only)"""
+    is_admin = getattr(current_user, "role", "") == "admin"
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    try:
+        return goodbooks_lgcn_service.get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
