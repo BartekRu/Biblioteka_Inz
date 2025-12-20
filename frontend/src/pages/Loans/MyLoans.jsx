@@ -22,7 +22,7 @@ import {
   Snackbar,
   Divider,
   IconButton,
-  Tooltip
+  Tooltip,
 } from '@mui/material';
 import {
   MenuBook,
@@ -33,7 +33,7 @@ import {
   History,
   LocalLibrary,
   ArrowForward,
-  Autorenew
+  Autorenew,
 } from '@mui/icons-material';
 import { loansAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -45,7 +45,7 @@ const MyLoans = () => {
   const [loans, setLoans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tabValue, setTabValue] = useState(0); 
+  const [tabValue, setTabValue] = useState(0);
 
   const [returnDialog, setReturnDialog] = useState({ open: false, loan: null });
   const [returning, setReturning] = useState(false);
@@ -81,8 +81,8 @@ const MyLoans = () => {
     }
   }, [isAuthenticated]);
 
-  const activeLoans = loans.filter(loan => loan.status === 'active');
-  const historyLoans = loans.filter(loan => loan.status !== 'active');
+  const activeLoans = loans.filter((loan) => loan.status === 'active');
+  const historyLoans = loans.filter((loan) => loan.status !== 'active');
 
   const getDaysRemaining = (dueDate) => {
     const now = new Date();
@@ -96,7 +96,7 @@ const MyLoans = () => {
     return new Date(dateString).toLocaleDateString('pl-PL', {
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
     });
   };
 
@@ -106,13 +106,13 @@ const MyLoans = () => {
     try {
       setReturning(true);
       await loansAPI.return(returnDialog.loan._id);
-      
+
       setSnackbar({
         open: true,
         message: 'Książka została zwrócona!',
-        severity: 'success'
+        severity: 'success',
       });
-      
+
       setReturnDialog({ open: false, loan: null });
       fetchLoans();
     } catch (err) {
@@ -120,7 +120,7 @@ const MyLoans = () => {
       setSnackbar({
         open: true,
         message: err.response?.data?.detail || 'Nie udało się zwrócić książki',
-        severity: 'error'
+        severity: 'error',
       });
     } finally {
       setReturning(false);
@@ -133,21 +133,21 @@ const MyLoans = () => {
     try {
       setRenewing(true);
       const response = await loansAPI.renew(renewDialog.loan._id);
-      
+
       setSnackbar({
         open: true,
         message: `Wypożyczenie przedłużone! Nowy termin: ${formatDate(response.data.new_due_date)}`,
-        severity: 'success'
+        severity: 'success',
       });
-      
+
       setRenewDialog({ open: false, loan: null });
-      fetchLoans(); 
+      fetchLoans();
     } catch (err) {
       console.error('Error renewing loan:', err);
       setSnackbar({
         open: true,
         message: err.response?.data?.detail || 'Nie udało się przedłużyć wypożyczenia',
-        severity: 'error'
+        severity: 'error',
       });
     } finally {
       setRenewing(false);
@@ -160,12 +160,12 @@ const MyLoans = () => {
     const isAlmostDue = loan.status === 'active' && daysRemaining >= 0 && daysRemaining <= 3;
 
     return (
-      <Card 
-        sx={{ 
-          mb: 2, 
+      <Card
+        sx={{
+          mb: 2,
           border: isOverdue ? '2px solid #f44336' : isAlmostDue ? '2px solid #ff9800' : 'none',
           transition: 'all 0.2s',
-          '&:hover': { boxShadow: 4 }
+          '&:hover': { boxShadow: 4 },
         }}
       >
         <CardContent>
@@ -181,26 +181,33 @@ const MyLoans = () => {
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
                   borderRadius: 1,
-                  cursor: 'pointer'
+                  cursor: 'pointer',
                 }}
                 onClick={() => navigate(`/books/${loan.book_id}`)}
               />
             </Grid>
 
             <Grid item xs={12} sm={9} md={10}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                }}
+              >
                 <Box sx={{ flex: 1, minWidth: 200 }}>
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
+                  <Typography
+                    variant="h6"
+                    sx={{
                       cursor: 'pointer',
-                      '&:hover': { color: 'primary.main' }
+                      '&:hover': { color: 'primary.main' },
                     }}
                     onClick={() => navigate(`/books/${loan.book_id}`)}
                   >
                     {loan.book_title || 'Nieznany tytuł'}
                   </Typography>
-                  
+
                   <Typography variant="body2" color="text.secondary" gutterBottom>
                     {loan.book_author || ''}
                   </Typography>
@@ -208,34 +215,29 @@ const MyLoans = () => {
                   <Box sx={{ mt: 1, mb: 1 }}>
                     {loan.status === 'active' ? (
                       isOverdue ? (
-                        <Chip 
-                          icon={<Warning />} 
-                          label={`Przeterminowane o ${Math.abs(daysRemaining)} dni`} 
-                          color="error" 
-                          size="small" 
+                        <Chip
+                          icon={<Warning />}
+                          label={`Przeterminowane o ${Math.abs(daysRemaining)} dni`}
+                          color="error"
+                          size="small"
                         />
                       ) : isAlmostDue ? (
-                        <Chip 
-                          icon={<Warning />} 
-                          label={`Pozostało ${daysRemaining} dni`} 
-                          color="warning" 
-                          size="small" 
+                        <Chip
+                          icon={<Warning />}
+                          label={`Pozostało ${daysRemaining} dni`}
+                          color="warning"
+                          size="small"
                         />
                       ) : (
-                        <Chip 
-                          icon={<CheckCircle />} 
-                          label={`Pozostało ${daysRemaining} dni`} 
-                          color="success" 
-                          size="small" 
+                        <Chip
+                          icon={<CheckCircle />}
+                          label={`Pozostało ${daysRemaining} dni`}
+                          color="success"
+                          size="small"
                         />
                       )
                     ) : (
-                      <Chip 
-                        icon={<History />} 
-                        label="Zwrócona" 
-                        color="default" 
-                        size="small" 
-                      />
+                      <Chip icon={<History />} label="Zwrócona" color="default" size="small" />
                     )}
                   </Box>
 
@@ -263,7 +265,11 @@ const MyLoans = () => {
                   </Box>
 
                   {loan.status === 'active' && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: 'block', mt: 1 }}
+                    >
                       Przedłużenia: {loan.renewal_count || 0} / {loan.max_renewals || 2}
                     </Typography>
                   )}
@@ -304,7 +310,9 @@ const MyLoans = () => {
 
   if (authLoading || loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+      <Box
+        sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}
+      >
         <CircularProgress />
       </Box>
     );
@@ -314,7 +322,12 @@ const MyLoans = () => {
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h4" component="h1" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography
+            variant="h4"
+            component="h1"
+            gutterBottom
+            sx={{ display: 'flex', alignItems: 'center' }}
+          >
             <LocalLibrary sx={{ mr: 1, fontSize: 40 }} />
             Moje wypożyczenia
           </Typography>
@@ -322,11 +335,7 @@ const MyLoans = () => {
             {activeLoans.length} aktywnych wypożyczeń
           </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<Refresh />}
-          onClick={fetchLoans}
-        >
+        <Button variant="outlined" startIcon={<Refresh />} onClick={fetchLoans}>
           Odśwież
         </Button>
       </Box>
@@ -344,15 +353,11 @@ const MyLoans = () => {
           indicatorColor="primary"
           textColor="primary"
         >
-          <Tab 
-            label={`Aktywne (${activeLoans.length})`} 
-            icon={<MenuBook />} 
-            iconPosition="start" 
-          />
-          <Tab 
-            label={`Historia (${historyLoans.length})`} 
-            icon={<History />} 
-            iconPosition="start" 
+          <Tab label={`Aktywne (${activeLoans.length})`} icon={<MenuBook />} iconPosition="start" />
+          <Tab
+            label={`Historia (${historyLoans.length})`}
+            icon={<History />}
+            iconPosition="start"
           />
         </Tabs>
       </Paper>
@@ -377,13 +382,14 @@ const MyLoans = () => {
           </Paper>
         ) : (
           <Box>
-            {activeLoans.some(loan => getDaysRemaining(loan.due_date) < 0) && (
+            {activeLoans.some((loan) => getDaysRemaining(loan.due_date) < 0) && (
               <Alert severity="error" sx={{ mb: 2 }}>
-                <strong>Uwaga!</strong> Masz przeterminowane wypożyczenia. Prosimy o jak najszybszy zwrot.
+                <strong>Uwaga!</strong> Masz przeterminowane wypożyczenia. Prosimy o jak najszybszy
+                zwrot.
               </Alert>
             )}
-            
-            {activeLoans.some(loan => {
+
+            {activeLoans.some((loan) => {
               const days = getDaysRemaining(loan.due_date);
               return days >= 0 && days <= 3;
             }) && (
@@ -392,26 +398,24 @@ const MyLoans = () => {
               </Alert>
             )}
 
-            {activeLoans.map(loan => (
+            {activeLoans.map((loan) => (
               <LoanCard key={loan._id} loan={loan} />
             ))}
           </Box>
         )
+      ) : historyLoans.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: 'center' }}>
+          <History sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+          <Typography variant="h6" color="text.secondary">
+            Brak historii wypożyczeń
+          </Typography>
+        </Paper>
       ) : (
-        historyLoans.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center' }}>
-            <History sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
-            <Typography variant="h6" color="text.secondary">
-              Brak historii wypożyczeń
-            </Typography>
-          </Paper>
-        ) : (
-          <Box>
-            {historyLoans.map(loan => (
-              <LoanCard key={loan._id} loan={loan} showActions={false} />
-            ))}
-          </Box>
-        )
+        <Box>
+          {historyLoans.map((loan) => (
+            <LoanCard key={loan._id} loan={loan} showActions={false} />
+          ))}
+        </Box>
       )}
 
       <Dialog open={returnDialog.open} onClose={() => setReturnDialog({ open: false, loan: null })}>
@@ -422,14 +426,8 @@ const MyLoans = () => {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReturnDialog({ open: false, loan: null })}>
-            Anuluj
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleReturn}
-            disabled={returning}
-          >
+          <Button onClick={() => setReturnDialog({ open: false, loan: null })}>Anuluj</Button>
+          <Button variant="contained" onClick={handleReturn} disabled={returning}>
             {returning ? 'Zwracanie...' : 'Zwróć książkę'}
           </Button>
         </DialogActions>
@@ -446,19 +444,14 @@ const MyLoans = () => {
           </Typography>
           {renewDialog.loan && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Pozostałe przedłużenia: {(renewDialog.loan.max_renewals || 2) - (renewDialog.loan.renewal_count || 0)}
+              Pozostałe przedłużenia:{' '}
+              {(renewDialog.loan.max_renewals || 2) - (renewDialog.loan.renewal_count || 0)}
             </Typography>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenewDialog({ open: false, loan: null })}>
-            Anuluj
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleRenew}
-            disabled={renewing}
-          >
+          <Button onClick={() => setRenewDialog({ open: false, loan: null })}>Anuluj</Button>
+          <Button variant="contained" onClick={handleRenew} disabled={renewing}>
             {renewing ? 'Przedłużanie...' : 'Przedłuż'}
           </Button>
         </DialogActions>

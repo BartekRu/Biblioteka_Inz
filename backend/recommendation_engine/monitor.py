@@ -5,8 +5,8 @@ import sys
 
 BASE_URL = "http://localhost:8000"
 
-USERNAME = "uzytkownik"  # ← zmień
-PASSWORD = "uzytkownik123"  # ← zmień
+USERNAME = "Kazik"
+PASSWORD = "Haslo12!" 
 REFRESH_SEC = 5
 
 

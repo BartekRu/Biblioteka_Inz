@@ -1,3 +1,12 @@
+"""
+reviews.py - ZAKTUALIZOWANE z automatycznym tworzeniem interakcji
+
+ZMIANY:
+- Po utworzeniu recenzji automatycznie tworzy interakcję typu 'review'
+- Interakcja jest zapisywana do kolekcji 'interactions'
+- Wywoływany jest endpoint rekomendacji do aktualizacji embeddingów
+"""
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, List
 from pydantic import BaseModel, Field
@@ -7,6 +16,7 @@ from datetime import datetime
 from ..database import get_database
 from ..routes.auth import get_current_active_user
 from ..models.user import UserInDB
+from ..models.interaction import InteractionCreate, get_interaction_weight
 
 router = APIRouter()
 
@@ -114,7 +124,99 @@ async def get_my_reviews(
 
 
 # ============================================
-# POST /reviews/ - Dodaj recenzję
+# 🆕 HELPER: Utwórz interakcję po recenzji
+# ============================================
+async def create_review_interaction(
+    db,
+    user_id: str,
+    book_id: str,
+    rating: int
+):
+    """
+    Tworzy interakcję typu 'review' w kolekcji interactions.
+    
+    Ta funkcja jest wywoływana automatycznie po dodaniu/edycji recenzji.
+    """
+    try:
+        # Przygotuj dokument interakcji
+        interaction_doc = {
+            "user_id": user_id,
+            "book_id": book_id,
+            "interaction_type": "review",
+            "rating": rating,
+            "weight": get_interaction_weight("review"),  # 0.8
+            "timestamp": datetime.utcnow(),
+            "metadata": {
+                "source": "review_endpoint",
+                "auto_created": True
+            }
+        }
+        
+        # Zapisz do kolekcji interactions
+        result = await db.interactions.insert_one(interaction_doc)
+        
+        print(f"✅ Utworzono interakcję review: user={user_id[:12]}, book={book_id[:12]}")
+        
+        return result.inserted_id
+        
+    except Exception as e:
+        print(f"❌ Błąd przy tworzeniu interakcji: {e}")
+        # Nie rzucamy wyjątku - recenzja powinna zostać zapisana nawet jeśli interakcja nie
+        return None
+
+
+# ============================================
+# 🆕 HELPER: Wyślij do systemu rekomendacji
+# ============================================
+async def trigger_recommendation_update(
+    user_id: str,
+    book_id: str,
+    interaction_type: str = "review"
+):
+    """
+    Wywołaj endpoint rekomendacji aby zaktualizować embeddingi użytkownika.
+    
+    Używa importu lokalnego aby uniknąć circular imports.
+    """
+    try:
+        from recommendation_engine.goodbooks_lightgcn_service import goodbooks_lgcn_service
+        
+        # Pobierz goodbooks_book_id
+        db = get_database()
+        book = await db.books.find_one({"_id": ObjectId(book_id)})
+        
+        if not book:
+            print(f"⚠️  Nie znaleziono książki {book_id}")
+            return None
+        
+        goodbooks_id = book.get("goodbooks_book_id")
+        if not goodbooks_id:
+            print(f"⚠️  Książka {book_id} nie ma goodbooks_book_id")
+            return None
+        
+        # Wywołaj process_interaction
+        update_result = goodbooks_lgcn_service.process_interaction(
+            mongo_user_id=user_id,
+            goodbooks_book_id=int(goodbooks_id),
+            interaction_type=interaction_type
+        )
+        
+        if update_result.get("success"):
+            print(f"✅ Zaktualizowano embeddingi użytkownika: {user_id[:12]}")
+        else:
+            print(f"⚠️  Nie udało się zaktualizować embeddingów: {update_result.get('reason')}")
+        
+        return update_result
+        
+    except Exception as e:
+        print(f"❌ Błąd przy aktualizacji embeddingów: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+# ============================================
+# POST /reviews/ - Dodaj recenzję - ZAKTUALIZOWANE
 # ============================================
 @router.post("/", status_code=201)
 async def create_review(
@@ -123,7 +225,8 @@ async def create_review(
 ):
     """
     Dodaj nową recenzję książki.
-    Użytkownik może dodać tylko jedną recenzję do danej książki.
+    
+    🆕 NOWE: Automatycznie tworzy interakcję i aktualizuje embeddingi!
     """
     db = get_database()
     
@@ -162,17 +265,36 @@ async def create_review(
     # Aktualizuj średnią ocenę książki
     await update_book_rating(db, review_data.book_id)
     
+    # 🆕 KLUCZOWA ZMIANA: Utwórz interakcję
+    interaction_id = await create_review_interaction(
+        db=db,
+        user_id=current_user.id,
+        book_id=review_data.book_id,
+        rating=review_data.rating
+    )
+    
+    # 🆕 KLUCZOWA ZMIANA: Zaktualizuj embeddingi
+    update_result = await trigger_recommendation_update(
+        user_id=current_user.id,
+        book_id=review_data.book_id,
+        interaction_type="review"
+    )
+    
     # Pobierz utworzoną recenzję
     created_review = await db.reviews.find_one({"_id": result.inserted_id})
     created_review["_id"] = str(created_review["_id"])
     created_review["username"] = current_user.username if hasattr(current_user, 'username') else ""
     created_review["user_name"] = current_user.full_name
     
+    # 🆕 Dodaj info o interakcji do odpowiedzi
+    created_review["interaction_created"] = interaction_id is not None
+    created_review["embedding_updated"] = update_result.get("success", False) if update_result else False
+    
     return created_review
 
 
 # ============================================
-# PUT /reviews/{id} - Aktualizuj recenzję
+# PUT /reviews/{id} - Aktualizuj recenzję - ZAKTUALIZOWANE
 # ============================================
 @router.put("/{review_id}")
 async def update_review(
@@ -182,6 +304,8 @@ async def update_review(
 ):
     """
     Aktualizuj swoją recenzję.
+    
+    🆕 NOWE: Jeśli zmienia się ocena, aktualizuje też interakcję!
     """
     db = get_database()
     
@@ -200,8 +324,12 @@ async def update_review(
     
     # Aktualizuj
     update_data = {"updated_at": datetime.utcnow()}
+    rating_changed = False
+    
     if review_data.rating is not None:
         update_data["rating"] = review_data.rating
+        rating_changed = (review_data.rating != review.get("rating"))
+    
     if review_data.content is not None:
         update_data["content"] = review_data.content
     
@@ -212,6 +340,41 @@ async def update_review(
     
     # Aktualizuj średnią ocenę książki
     await update_book_rating(db, review["book_id"])
+    
+    # 🆕 Jeśli zmieniono ocenę, zaktualizuj interakcję i embeddingi
+    if rating_changed and review_data.rating is not None:
+        # Zaktualizuj istniejącą interakcję lub utwórz nową
+        existing_interaction = await db.interactions.find_one({
+            "user_id": current_user.id,
+            "book_id": review["book_id"],
+            "interaction_type": "review"
+        })
+        
+        if existing_interaction:
+            # Aktualizuj istniejącą
+            await db.interactions.update_one(
+                {"_id": existing_interaction["_id"]},
+                {"$set": {
+                    "rating": review_data.rating,
+                    "timestamp": datetime.utcnow()
+                }}
+            )
+            print(f"✅ Zaktualizowano interakcję review")
+        else:
+            # Utwórz nową
+            await create_review_interaction(
+                db=db,
+                user_id=current_user.id,
+                book_id=review["book_id"],
+                rating=review_data.rating
+            )
+        
+        # Zaktualizuj embeddingi
+        await trigger_recommendation_update(
+            user_id=current_user.id,
+            book_id=review["book_id"],
+            interaction_type="review"
+        )
     
     # Pobierz zaktualizowaną recenzję
     updated_review = await db.reviews.find_one({"_id": ObjectId(review_id)})
@@ -231,6 +394,8 @@ async def delete_review(
     """
     Usuń swoją recenzję.
     Admin może usunąć dowolną recenzję.
+    
+    🆕 UWAGA: Nie usuwa interakcji - zachowujemy historię dla modelu
     """
     db = get_database()
     
@@ -254,6 +419,10 @@ async def delete_review(
     
     # Aktualizuj średnią ocenę książki
     await update_book_rating(db, book_id)
+    
+    # 🆕 UWAGA: Celowo NIE usuwamy interakcji
+    # Model ML powinien zachować historyczną wiedzę o preferencjach
+    # Możemy dodać flagę 'deleted' jeśli potrzeba
     
     return {"message": "Recenzja została usunięta"}
 

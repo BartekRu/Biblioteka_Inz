@@ -1,8 +1,8 @@
 """
-recommendations.py - UPDATED TO USE ENHANCED SERVICE
+recommendations.py - FINAL VERSION
 
 Używa rozszerzonego GoodbooksLightGCNService z incremental learning.
-Minimalne zmiany - głównie dodanie wywołań do nowych metod.
+POPRAWIONE: Prawidłowy lazy loading serwisu.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 # Import rozszerzonego serwisu (z incremental learning)
-from recommendation_engine.goodbooks_lightgcn_service import goodbooks_lgcn_service
+import recommendation_engine.goodbooks_lightgcn_service as service_module
 from recommendation_engine.goodbooks_lightgcn import MODEL_DIR
 
 from pydantic import BaseModel
@@ -26,9 +26,27 @@ router = APIRouter(prefix="/v1/recommendations", tags=["Recommendations"])
 
 
 # ==========================================================
-#  HELPER FUNCTIONS (bez zmian)
+#  HELPER: Lazy loading serwisu
 # ==========================================================
 
+def get_service():
+    """
+    Pobierz serwis LightGCN (lazy loading)
+    
+    Funkcja jest wywoływana przy każdym request, więc serwis
+    musi być już zainicjalizowany w main.py podczas startu.
+    """
+    if service_module.goodbooks_lgcn_service is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="Recommendation service not initialized. Backend starting up..."
+        )
+    return service_module.goodbooks_lgcn_service
+
+
+# ==========================================================
+#  HELPER FUNCTIONS
+# ==========================================================
 
 def normalize_book(book: dict) -> dict:
     """Ujednolica nazwy pól w dokumentach książek"""
@@ -77,15 +95,14 @@ class InteractionIn(BaseModel):
 
 
 # ==========================================================
-#  HEALTH - UPDATED
+#  HEALTH
 # ==========================================================
-
 
 @router.get("/health")
 async def health_check():
     """Sprawdza status systemu rekomendacji"""
     try:
-        stats = goodbooks_lgcn_service.get_stats()
+        stats = get_service().get_stats()
 
         return {
             "status": "healthy",
@@ -93,6 +110,13 @@ async def health_check():
             "incremental_mode": stats.get("incremental_mode", True),
             "total_users": stats["total_users"],
             "total_updates": stats["total_updates"],
+            "timestamp": datetime.now().isoformat(),
+        }
+    except HTTPException as e:
+        return {
+            "status": "starting",
+            "model_loaded": False,
+            "error": e.detail,
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:
@@ -105,9 +129,8 @@ async def health_check():
 
 
 # ==========================================================
-#  METRICS - UPDATED
+#  METRICS
 # ==========================================================
-
 
 @router.get("/metrics")
 async def get_metrics():
@@ -135,9 +158,9 @@ async def get_metrics():
     else:
         last_updated = datetime.now().strftime("%Y-%m-%d")
 
-    # ⭐ Statystyki incremental z serwisu
+    # Statystyki incremental z serwisu
     try:
-        stats = goodbooks_lgcn_service.get_stats()
+        stats = get_service().get_stats()
 
         incremental_info = {
             "incrementalMode": stats.get("incremental_mode", True),
@@ -166,15 +189,14 @@ async def get_metrics():
         "lastUpdated": last_updated,
         "modelName": base_metrics.get("modelName", "LightGCN (goodbooks-10k)"),
         "layers": base_metrics.get("layers", 3),
-        # ⭐ Incremental stats
+        # Incremental stats
         **incremental_info,
     }
 
 
 # ==========================================================
-#  POZOSTAŁE ENDPOINTY (bez zmian)
+#  POZOSTAŁE ENDPOINTY
 # ==========================================================
-
 
 @router.get("/featured")
 async def get_featured(
@@ -469,9 +491,8 @@ async def get_similar(book_id: str, limit: int = Query(default=8, le=20)):
 
 
 # ==========================================================
-#  ⭐ INTERACTIONS - UPDATED WITH INCREMENTAL LEARNING
+#  INTERACTIONS - INCREMENTAL LEARNING
 # ==========================================================
-
 
 @router.post("/interaction")
 async def report_interaction(interaction: InteractionIn, current_user=Depends(get_current_user)):
@@ -505,15 +526,15 @@ async def report_interaction(interaction: InteractionIn, current_user=Depends(ge
 
     await db.interactions.insert_one(doc)
 
-    # 2. ⭐ AKTUALIZUJ EMBEDDINGI
+    # 2. AKTUALIZUJ EMBEDDINGI
     try:
         book = await db.books.find_one({"_id": bid})
 
         if book and book.get("goodbooks_book_id"):
             goodbooks_id = int(book["goodbooks_book_id"])
 
-            # ⭐ Process interaction z nowym API
-            update_result = goodbooks_lgcn_service.process_interaction(
+            # Process interaction z nowym API
+            update_result = get_service().process_interaction(
                 mongo_user_id=str(uid),
                 goodbooks_book_id=goodbooks_id,
                 interaction_type=interaction.interaction_type,
@@ -535,7 +556,6 @@ async def report_interaction(interaction: InteractionIn, current_user=Depends(ge
 
     except Exception as e:
         import traceback
-
         traceback.print_exc()
 
         return {
@@ -544,11 +564,6 @@ async def report_interaction(interaction: InteractionIn, current_user=Depends(ge
             "embedding_updated": False,
             "error": str(e),
         }
-
-
-# ==========================================================
-#  ⭐ USER LIGHTGCN - UPDATED WITH DYNAMIC EMBEDDINGS
-# ==========================================================
 
 
 @router.get("/user-lightgcn")
@@ -591,9 +606,9 @@ async def get_user_lightgcn_recommendations(
             except (TypeError, ValueError):
                 continue
 
-    # 2. ⭐ Użyj nowego API z dynamic embeddings
+    # 2. Użyj nowego API z dynamic embeddings
     try:
-        rec_goodbooks_ids = goodbooks_lgcn_service.get_recommendations_for_user(
+        rec_goodbooks_ids = get_service().get_recommendations_for_user(
             mongo_user_id=str(uid),
             n=limit * 2,
             exclude_goodbooks_ids=borrowed_goodbooks_ids,
@@ -602,15 +617,12 @@ async def get_user_lightgcn_recommendations(
 
     except Exception as e:
         import traceback
-
         traceback.print_exc()
 
-        # Fallback do starego API
-        rec_goodbooks_ids = goodbooks_lgcn_service.recommend_for_goodbooks_ids(
+        rec_goodbooks_ids = get_service().recommend_for_goodbooks_ids(
             list(borrowed_goodbooks_ids) if borrowed_goodbooks_ids else [], top_k=limit * 2
         )
 
-    # 3. Mapowanie do MongoDB books
     results = []
     seen = set()
 
@@ -639,9 +651,8 @@ async def get_user_lightgcn_recommendations(
 
 
 # ==========================================================
-#  ⭐ DEBUG ENDPOINTS
+#  DEBUG ENDPOINTS
 # ==========================================================
-
 
 @router.get("/debug/user-stats/{user_id}")
 async def get_user_debug_stats(user_id: str, current_user=Depends(get_current_user)):
@@ -653,28 +664,36 @@ async def get_user_debug_stats(user_id: str, current_user=Depends(get_current_us
         raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
-        has_embedding = user_id in goodbooks_lgcn_service.mongo_user_to_idx
+        service = get_service()
+        has_embedding = user_id in service.mongo_user_to_idx
 
         user_stats = {
             "user_id": user_id,
             "has_embedding": has_embedding,
-            "user_idx": goodbooks_lgcn_service.mongo_user_to_idx.get(user_id),
+            "user_idx": service.mongo_user_to_idx.get(user_id),
             "is_new_user": (
                 has_embedding
-                and goodbooks_lgcn_service.mongo_user_to_idx[user_id]
-                >= goodbooks_lgcn_service.num_users
+                and service.mongo_user_to_idx[user_id] >= service.num_users
             ),
         }
 
         if has_embedding:
-            user_idx = goodbooks_lgcn_service.mongo_user_to_idx[user_id]
-            embedding = goodbooks_lgcn_service.user_emb[user_idx]
+            user_idx = service.mongo_user_to_idx[user_id]
+            embedding = service.user_emb[user_idx]
 
             import numpy as np
 
             user_stats["embedding_norm"] = float(np.linalg.norm(embedding))
             user_stats["embedding_mean"] = float(np.mean(embedding))
             user_stats["embedding_std"] = float(np.std(embedding))
+            
+            # Liczba interakcji
+            user_stats["interactions"] = service.user_interaction_counts.get(user_id, 0)
+            
+            # Ostatnia aktualizacja
+            last_update = service.user_last_update.get(user_id)
+            if last_update:
+                user_stats["last_update"] = last_update.isoformat()
 
         return user_stats
 
@@ -691,6 +710,6 @@ async def get_service_stats(current_user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin only")
 
     try:
-        return goodbooks_lgcn_service.get_stats()
+        return get_service().get_stats()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
