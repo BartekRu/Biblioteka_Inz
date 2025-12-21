@@ -1,10 +1,3 @@
-"""
-recommendations.py - FINAL VERSION
-
-Używa rozszerzonego GoodbooksLightGCNService z incremental learning.
-POPRAWIONE: Prawidłowy lazy loading serwisu.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from datetime import datetime
@@ -17,29 +10,34 @@ from pathlib import Path
 import recommendation_engine.goodbooks_lightgcn_service as service_module
 from recommendation_engine.goodbooks_lightgcn import MODEL_DIR
 
+from ..models.dependencies import get_interaction_service
+from ..service.interaction_service import InteractionService
+from typing import Literal
+
+
 from pydantic import BaseModel
 
 from ..database import get_database
 from .auth import get_current_user
 
-router = APIRouter(prefix="/v1/recommendations", tags=["Recommendations"])
+router = APIRouter()
 
 
 # ==========================================================
 #  HELPER: Lazy loading serwisu
 # ==========================================================
 
+
 def get_service():
     """
     Pobierz serwis LightGCN (lazy loading)
-    
+
     Funkcja jest wywoływana przy każdym request, więc serwis
     musi być już zainicjalizowany w main.py podczas startu.
     """
     if service_module.goodbooks_lgcn_service is None:
         raise HTTPException(
-            status_code=503, 
-            detail="Recommendation service not initialized. Backend starting up..."
+            status_code=503, detail="Recommendation service not initialized. Backend starting up..."
         )
     return service_module.goodbooks_lgcn_service
 
@@ -47,6 +45,7 @@ def get_service():
 # ==========================================================
 #  HELPER FUNCTIONS
 # ==========================================================
+
 
 def normalize_book(book: dict) -> dict:
     """Ujednolica nazwy pól w dokumentach książek"""
@@ -90,13 +89,14 @@ def serialize_doc(doc: dict) -> dict:
 
 class InteractionIn(BaseModel):
     book_id: str
-    interaction_type: str
+    interaction_type: Literal["view", "review", "borrow"]
     metadata: Optional[dict] = None
 
 
 # ==========================================================
 #  HEALTH
 # ==========================================================
+
 
 @router.get("/health")
 async def health_check():
@@ -131,6 +131,7 @@ async def health_check():
 # ==========================================================
 #  METRICS
 # ==========================================================
+
 
 @router.get("/metrics")
 async def get_metrics():
@@ -198,9 +199,10 @@ async def get_metrics():
 #  POZOSTAŁE ENDPOINTY
 # ==========================================================
 
+
 @router.get("/featured")
 async def get_featured(
-    limit: int = Query(default=10, le=20), current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=10, le=20), current_user=Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -325,7 +327,7 @@ async def get_categories():
 
 @router.get("/because-borrowed")
 async def get_because_borrowed(
-    limit: int = Query(default=3, le=5), current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=3, le=5), current_user=Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -383,7 +385,7 @@ async def get_because_borrowed(
 
 @router.get("/discovery-queue")
 async def get_discovery_queue(
-    limit: int = Query(default=12, le=30), current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=12, le=30), current_user=Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -403,7 +405,7 @@ async def get_discovery_queue(
 
 @router.get("/known-authors")
 async def get_known_authors(
-    limit: int = Query(default=6, le=10), current_user: dict = Depends(get_current_user)
+    limit: int = Query(default=6, le=10), current_user=Depends(get_current_user)
 ):
     db = get_database()
     user_id = str(current_user.id)
@@ -494,76 +496,46 @@ async def get_similar(book_id: str, limit: int = Query(default=8, le=20)):
 #  INTERACTIONS - INCREMENTAL LEARNING
 # ==========================================================
 
+
 @router.post("/interaction")
-async def report_interaction(interaction: InteractionIn, current_user=Depends(get_current_user)):
+async def report_interaction(
+    interaction: InteractionIn,
+    current_user=Depends(get_current_user),
+    interaction_service: InteractionService = Depends(get_interaction_service),
+):
     """
-    Raportuj interakcję + aktualizuj embeddingi w czasie rzeczywistym!
+    Raportuj interakcję: zapis do jednej kolekcji + (opcjonalnie) incremental update embeddingów.
     """
     db = get_database()
+    user_id = str(current_user.id)
 
-    user_id = getattr(current_user, "id", None)
-    if not user_id:
-        raise HTTPException(status_code=400, detail="Invalid user in context")
+    # (opcjonalnie, ale bardzo polecam) dołóż goodbooks_book_id do metadata,
+    # żeby incremental update mógł zadziałać także poza tym endpointem
+    meta = interaction.metadata or {}
 
-    try:
-        uid = ObjectId(user_id)
-    except:
-        uid = user_id
+    # znajdź książkę (żeby wyciągnąć goodbooks_book_id)
+    bid = (
+        ObjectId(interaction.book_id)
+        if ObjectId.is_valid(interaction.book_id)
+        else interaction.book_id
+    )
+    book = await db.books.find_one({"_id": bid})
 
-    try:
-        bid = ObjectId(interaction.book_id)
-    except:
-        bid = interaction.book_id
+    if book and book.get("goodbooks_book_id") is not None:
+        try:
+            meta["goodbooks_book_id"] = int(book["goodbooks_book_id"])
+        except (TypeError, ValueError):
+            pass
 
-    # 1. Zapisz do MongoDB
-    doc = {
-        "user_id": uid,
-        "book_id": bid,
-        "type": interaction.interaction_type,
-        "timestamp": datetime.now(),
-        "metadata": interaction.metadata or {},
-    }
+    result = await interaction_service.create_interaction(
+        user_id=user_id,
+        book_id=interaction.book_id,
+        interaction_type=interaction.interaction_type,
+        metadata=meta,
+        update_embedding=True,
+    )
 
-    await db.interactions.insert_one(doc)
-
-    # 2. AKTUALIZUJ EMBEDDINGI
-    try:
-        book = await db.books.find_one({"_id": bid})
-
-        if book and book.get("goodbooks_book_id"):
-            goodbooks_id = int(book["goodbooks_book_id"])
-
-            # Process interaction z nowym API
-            update_result = get_service().process_interaction(
-                mongo_user_id=str(uid),
-                goodbooks_book_id=goodbooks_id,
-                interaction_type=interaction.interaction_type,
-            )
-
-            return {
-                "status": "recorded",
-                "interaction_saved": True,
-                "embedding_updated": update_result.get("success", False),
-                "update_info": update_result if update_result.get("success") else None,
-            }
-        else:
-            return {
-                "status": "recorded",
-                "interaction_saved": True,
-                "embedding_updated": False,
-                "reason": "book_not_in_goodbooks",
-            }
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-
-        return {
-            "status": "recorded",
-            "interaction_saved": True,
-            "embedding_updated": False,
-            "error": str(e),
-        }
+    return {"status": "recorded", **result}
 
 
 @router.get("/user-lightgcn")
@@ -617,6 +589,7 @@ async def get_user_lightgcn_recommendations(
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
 
         rec_goodbooks_ids = get_service().recommend_for_goodbooks_ids(
@@ -654,6 +627,7 @@ async def get_user_lightgcn_recommendations(
 #  DEBUG ENDPOINTS
 # ==========================================================
 
+
 @router.get("/debug/user-stats/{user_id}")
 async def get_user_debug_stats(user_id: str, current_user=Depends(get_current_user)):
     """Debug - statystyki użytkownika"""
@@ -672,8 +646,7 @@ async def get_user_debug_stats(user_id: str, current_user=Depends(get_current_us
             "has_embedding": has_embedding,
             "user_idx": service.mongo_user_to_idx.get(user_id),
             "is_new_user": (
-                has_embedding
-                and service.mongo_user_to_idx[user_id] >= service.num_users
+                has_embedding and service.mongo_user_to_idx[user_id] >= service.num_users
             ),
         }
 
@@ -686,10 +659,10 @@ async def get_user_debug_stats(user_id: str, current_user=Depends(get_current_us
             user_stats["embedding_norm"] = float(np.linalg.norm(embedding))
             user_stats["embedding_mean"] = float(np.mean(embedding))
             user_stats["embedding_std"] = float(np.std(embedding))
-            
+
             # Liczba interakcji
             user_stats["interactions"] = service.user_interaction_counts.get(user_id, 0)
-            
+
             # Ostatnia aktualizacja
             last_update = service.user_last_update.get(user_id)
             if last_update:

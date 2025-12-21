@@ -1,319 +1,193 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import Optional
-from bson import ObjectId
-from datetime import datetime, timedelta
-
-from ..database import get_database
-from ..routes.auth import get_current_active_user
-from ..models.user import UserInDB
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from datetime import datetime, timedelta
+from bson import ObjectId
 
+from ..models.dependencies import get_interaction_service
+from ..service.interaction_service import InteractionService
+from .auth import get_current_user
+from ..database import get_database
 
 router = APIRouter()
 
 
-# ============================================================================
-#  UNIWERSALNE NARZĘDZIA
-# ============================================================================
-
-def oid(value):
-    """Zamienia string → ObjectId o ile jest valid."""
-    try:
-        return ObjectId(value)
-    except:
-        return value
+# ====== BODY MODELE (front wysyła JSON) ======
+class BorrowBody(BaseModel):
+    book_id: str
 
 
-def serialize_doc(doc: dict) -> dict:
-    """Konwertuje wszystkie ObjectId w dokumencie na string."""
-    out = {}
-    for key, value in doc.items():
-        if isinstance(value, ObjectId):
-            out[key] = str(value)
-        else:
-            out[key] = value
-    return out
+def to_object_id(id_str: str):
+    # pozwala działać i dla stringowych _id, i dla ObjectId
+    return ObjectId(id_str) if ObjectId.is_valid(id_str) else id_str
 
-async def enrich_loan(db, loan):
-    """Uzupełnia wypożyczenie o dane książki i użytkownika."""
-    
-    loan = dict(loan)  # ← unikamy problemów z Cursor/Raw doc
 
-    # Book
-    try:
-        book = await db.books.find_one({"_id": ObjectId(loan["book_id"])})
-        if book:
-            loan["book_title"] = book.get("title", "")
-            loan["book_author"] = book.get("author", "")
-            loan["book_image"] = book.get("image_url") or book.get("cover_image")
-    except:
-        pass
+def pick_book_fields(book: dict):
+    # dopasuj do swoich pól w books
+    title = book.get("title") or book.get("book_title") or "Nieznany tytuł"
+    author = book.get("author") or book.get("authors") or book.get("book_author") or ""
+    image = book.get("image_url") or book.get("cover_url") or book.get("book_image") or None
+    return title, author, image
 
-    # User
-    try:
-        user = await db.users.find_one({"_id": ObjectId(loan["user_id"])})
-        if user:
-            loan["username"] = user.get("username", "")
-            loan["user_name"] = user.get("full_name", "")
-    except:
-        pass
 
-    loan["is_overdue"] = (
-        loan.get("status") == "active"
-        and loan.get("due_date") is not None
-        and datetime.utcnow() > loan["due_date"]
+@router.post("/borrow")
+async def borrow_book(
+    payload: BorrowBody,
+    current_user=Depends(get_current_user),
+    interaction_service: InteractionService = Depends(get_interaction_service),
+):
+    db = get_database()
+    user_id = current_user.id
+    book_id = payload.book_id
+
+    # książka
+    book_key = to_object_id(book_id)
+    book = await db.books.find_one({"_id": book_key})
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    if book.get("available_copies", 0) <= 0:
+        raise HTTPException(status_code=400, detail="No copies available")
+
+    # limit aktywnych wypożyczeń (UWAGA: bez book_id w query!)
+    active_loans = await db.loans.count_documents({"user_id": user_id, "status": "active"})
+    if active_loans >= 10:
+        raise HTTPException(status_code=400, detail="Loan limit reached (max 5)")
+
+    # duplikat: aktywne wypożyczenie tej samej książki
+    existing = await db.loans.find_one({"user_id": user_id, "book_id": book_id, "status": "active"})
+    if existing:
+        raise HTTPException(status_code=400, detail="You already borrowed this book")
+
+    book_title, book_author, book_image = pick_book_fields(book)
+
+    now = datetime.utcnow()
+    loan_doc = {
+        "user_id": user_id,
+        "book_id": book_id,  # trzymamy jako string pod frontend
+        "book_title": book_title,
+        "book_author": book_author,
+        "book_image": book_image,
+        "loan_date": now,  # UI używa loan_date
+        "due_date": now + timedelta(days=30),  # u Ciebie na screenie było ~30 dni
+        "return_date": None,
+        "status": "active",  # UI używa 'active'
+        "renewal_count": 0,
+        "max_renewals": 2,
+        "created_at": now,
+    }
+
+    result = await db.loans.insert_one(loan_doc)
+    loan_id = str(result.inserted_id)
+
+    await db.books.update_one({"_id": book_key}, {"$inc": {"available_copies": -1}})
+
+    # interakcja borrow (waga 1.0)
+    interaction_result = await interaction_service.create_interaction(
+        user_id=user_id,
+        book_id=book_id,
+        interaction_type="borrow",
+        metadata={"loan_id": loan_id, "loan_date": loan_doc["loan_date"].isoformat()},
+        update_embedding=True,
     )
 
-    loan["_id"] = str(loan["_id"])
-
-    return loan
-
-
-
-# ============================================================================
-#  LISTA WSZYSTKICH WYPOŻYCZEŃ (panel admina)
-# ============================================================================
-
-@router.get("/")
-async def get_loans(
-    status: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    current_user: UserInDB = Depends(get_current_active_user)
-):
-    if current_user.role not in ["admin", "librarian"]:
-        raise HTTPException(status_code=403, detail="Brak uprawnień")
-
-    db = get_database()
-
-    query = {"status": status} if status else {}
-
-    cursor = db.loans.find(query).sort("loan_date", -1).skip((page - 1) * limit).limit(limit)
-
-    loans = [enrich_loan(db, loan) async for loan in cursor]
-
-    total = await db.loans.count_documents(query)
-
+    loan_doc["_id"] = loan_id
     return {
-        "loans": loans,
-        "total": total,
-        "page": page,
-        "limit": limit
+        **loan_doc,
+        "interaction_created": True,
+        "interaction_weight": 1.0,
+        "embedding_updated": interaction_result.get("embedding_updated", False),
     }
 
 
-# ============================================================================
-#  WYPOŻYCZENIA ZALOGOWANEGO UŻYTKOWNIKA
-# ============================================================================
-
-@router.get("/me")
-async def get_my_loans(
-    status: Optional[str] = Query(None),
-    current_user: UserInDB = Depends(get_current_active_user)
-):
+@router.get("/my-loans")
+async def get_my_loans(current_user=Depends(get_current_user), status: str | None = None):
     db = get_database()
+    user_id = current_user.id
 
-    query = {"user_id": current_user.id}
+    query = {"user_id": user_id}
     if status:
         query["status"] = status
 
-    cursor = db.loans.find(query).sort("loan_date", -1)
+    loans = await db.loans.find(query).sort("loan_date", -1).to_list(length=200)
 
-    loans = []
-    async for loan in cursor:
-        loans.append(await enrich_loan(db, loan))  # ← KLUCZOWA POPRAWKA
+    # uzupełnij brakujące pola (stare rekordy) żeby nie było "Nieznany tytuł"
+    for loan in loans:
+        loan["_id"] = str(loan["_id"])
+        # kompatybilność jeśli gdzieś masz borrow_date zamiast loan_date
+        if "loan_date" not in loan and "borrow_date" in loan:
+            loan["loan_date"] = loan["borrow_date"]
+
+        if not loan.get("book_title") or not loan.get("book_author") or not loan.get("book_image"):
+            book_key = to_object_id(str(loan.get("book_id")))
+            book = await db.books.find_one({"_id": book_key})
+            if book:
+                title, author, image = pick_book_fields(book)
+                loan["book_title"] = loan.get("book_title") or title
+                loan["book_author"] = loan.get("book_author") or author
+                loan["book_image"] = loan.get("book_image") or image
 
     return loans
 
 
-
-# ============================================================================
-#  SZCZEGÓŁY WYPOŻYCZENIA
-# ============================================================================
-
-@router.get("/{loan_id}")
-async def get_loan(
-    loan_id: str,
-    current_user: UserInDB = Depends(get_current_active_user)
-):
-    db = get_database()
-
-    if not ObjectId.is_valid(loan_id):
-        raise HTTPException(status_code=400, detail="Nieprawidłowy ID wypożyczenia")
-
-    loan = await db.loans.find_one({"_id": oid(loan_id)})
-    if not loan:
-        raise HTTPException(status_code=404, detail="Wypożyczenie nie znalezione")
-
-    if loan["user_id"] != current_user.id and current_user.role not in ["admin", "librarian"]:
-        raise HTTPException(status_code=403, detail="Brak uprawnień")
-
-    return enrich_loan(db, loan)
-
-
-# ============================================================================
-#  UTWORZENIE WYPOŻYCZENIA
-# ============================================================================
-
-class LoanCreate(BaseModel):
-    book_id: str
-    librarian_notes: Optional[str] = None
-
-@router.post("/", status_code=201)
-async def create_loan(
-    data: LoanCreate,
-    current_user: UserInDB = Depends(get_current_active_user)
-):
-    db = get_database()
-
-    if not ObjectId.is_valid(data.book_id):
-        raise HTTPException(status_code=400, detail="Nieprawidłowy ID książki")
-
-    book = await db.books.find_one({"_id": oid(data.book_id)})
-    if not book:
-        raise HTTPException(404, "Książka nie znaleziona")
-
-    if book.get("available_copies", 0) <= 0:
-        raise HTTPException(400, "Brak dostępnych egzemplarzy")
-
-    existing = await db.loans.find_one({
-        "book_id": data.book_id,
-        "user_id": current_user.id,
-        "status": "active"
-    })
-    if existing:
-        raise HTTPException(400, "Masz już wypożyczoną tę książkę")
-
-    if await db.loans.count_documents({"user_id": current_user.id, "status": "active"}) >= 5:
-        raise HTTPException(400, "Osiągnięto limit 5 wypożyczeń")
-
-    loan = {
-        "book_id": data.book_id,
-        "user_id": current_user.id,
-        "loan_date": datetime.utcnow(),
-        "due_date": datetime.utcnow() + timedelta(days=30),
-        "return_date": None,
-        "status": "active",
-        "renewal_count": 0,
-        "max_renewals": 2,
-        "librarian_notes": data.librarian_notes
-    }
-
-    result = await db.loans.insert_one(loan)
-
-    await db.books.update_one(
-        {"_id": oid(data.book_id)},
-        {"$inc": {"available_copies": -1}}
-    )
-
-    created = await db.loans.find_one({"_id": result.inserted_id})
-
-    return await enrich_loan(db, created)
-
-
-
-# ============================================================================
-#  ZWRÓĆ KSIĄŻKĘ
-# ============================================================================
-
-class LoanReturn(BaseModel):
-    librarian_notes: Optional[str] = None
+# alias pod frontend: loansAPI.getMine() -> /loans/me
+@router.get("/me")
+async def get_my_loans_alias(current_user=Depends(get_current_user), status: str | None = None):
+    return await get_my_loans(current_user=current_user, status=status)
 
 
 @router.post("/{loan_id}/return")
-async def return_loan(
-    loan_id: str,
-    data: LoanReturn,
-    current_user: UserInDB = Depends(get_current_active_user)
-):
+async def return_book(loan_id: str, current_user=Depends(get_current_user)):
     db = get_database()
+    user_id = current_user.id
 
-    loan = await db.loans.find_one({"_id": oid(loan_id)})
+    loan_key = to_object_id(loan_id)
+    loan = await db.loans.find_one({"_id": loan_key})
     if not loan:
-        raise HTTPException(404, "Wypożyczenie nie znalezione")
+        raise HTTPException(status_code=404, detail="Loan not found")
 
-    if loan["user_id"] != current_user.id and current_user.role not in ["admin", "librarian"]:
-        raise HTTPException(403, "Brak uprawnień")
+    if loan["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not your loan")
 
     if loan["status"] != "active":
-        raise HTTPException(400, "To wypożyczenie nie jest aktywne")
+        raise HTTPException(status_code=400, detail="Already returned")
 
     await db.loans.update_one(
-        {"_id": oid(loan_id)},
-        {
-            "$set": {
-                "status": "returned",
-                "return_date": datetime.utcnow(),
-                "librarian_notes": data.librarian_notes or loan.get("librarian_notes")
-            }
-        }
+        {"_id": loan_key},
+        {"$set": {"status": "returned", "return_date": datetime.utcnow()}},
     )
 
-    await db.books.update_one(
-        {"_id": oid(loan["book_id"])},
-        {"$inc": {"available_copies": 1}}
-    )
+    book_key = to_object_id(str(loan["book_id"]))
+    await db.books.update_one({"_id": book_key}, {"$inc": {"available_copies": 1}})
 
-    return {"message": "Książka została zwrócona"}
+    return {"message": "Book returned successfully"}
 
-
-# ============================================================================
-#  PRZEDŁUŻENIE WYPOŻYCZENIA
-# ============================================================================
 
 @router.post("/{loan_id}/renew")
-async def renew_loan(loan_id: str, current_user: UserInDB = Depends(get_current_active_user)):
+async def renew_loan(loan_id: str, current_user=Depends(get_current_user)):
     db = get_database()
+    user_id = current_user.id
 
-    loan = await db.loans.find_one({"_id": oid(loan_id)})
+    loan_key = to_object_id(loan_id)
+    loan = await db.loans.find_one({"_id": loan_key})
     if not loan:
-        raise HTTPException(404, "Wypożyczenie nie znalezione")
+        raise HTTPException(status_code=404, detail="Loan not found")
 
-    if loan["user_id"] != current_user.id:
-        raise HTTPException(403, "Brak uprawnień")
+    if loan["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not your loan")
 
     if loan["status"] != "active":
-        raise HTTPException(400, "Wypożyczenie nie jest aktywne")
+        raise HTTPException(status_code=400, detail="Cannot renew returned loan")
 
-    if loan["renewal_count"] >= loan["max_renewals"]:
-        raise HTTPException(400, "Osiągnięto limit przedłużeń")
+    renewal_count = loan.get("renewal_count", 0)
+    max_renewals = loan.get("max_renewals", 2)
+    if renewal_count >= max_renewals:
+        raise HTTPException(status_code=400, detail="Renewal limit reached")
 
     new_due = loan["due_date"] + timedelta(days=14)
 
     await db.loans.update_one(
-        {"_id": oid(loan_id)},
-        {
-            "$inc": {"renewal_count": 1},
-            "$set": {"due_date": new_due}
-        }
+        {"_id": loan_key},
+        {"$set": {"due_date": new_due}, "$inc": {"renewal_count": 1}},
     )
 
-    return {"message": "Przedłużono o 14 dni", "new_due_date": new_due.isoformat()}
-
-
-# ============================================================================
-#  SPRAWDŹ CZY MOŻNA WYPOŻYCZYĆ
-# ============================================================================
-
-@router.get("/can-borrow/{book_id}")
-async def can_borrow(book_id: str, current_user: UserInDB = Depends(get_current_active_user)):
-    db = get_database()
-
-    if not ObjectId.is_valid(book_id):
-        return {"can_borrow": False, "reason": "Nieprawidłowy ID książki"}
-
-    book = await db.books.find_one({"_id": oid(book_id)})
-    if not book:
-        return {"can_borrow": False, "reason": "Książka nie istnieje"}
-
-    if book.get("available_copies", 0) <= 0:
-        return {"can_borrow": False, "reason": "Brak dostępnych egzemplarzy"}
-
-    if await db.loans.find_one({"book_id": book_id, "user_id": current_user.id, "status": "active"}):
-        return {"can_borrow": False, "reason": "Masz już wypożyczoną tę książkę"}
-
-    count = await db.loans.count_documents({"user_id": current_user.id, "status": "active"})
-    if count >= 5:
-        return {"can_borrow": False, "reason": "Limit 5 wypożyczeń"}
-
-    return {"can_borrow": True}
+    return {"message": "Loan renewed", "new_due_date": new_due}

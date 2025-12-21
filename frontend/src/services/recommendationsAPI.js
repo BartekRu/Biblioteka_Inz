@@ -26,64 +26,35 @@ api.interceptors.response.use(
 );
 
 export const recommendationsAPI = {
-  // Zwracamy dalej axios.Response – bez mocków i bez łapania błędów
+  getFeatured: (limit = 10) => api.get('/recommendations/featured', { params: { limit } }),
 
-  getFeatured: (limit = 10) => {
-    return api.get('/recommendations/featured', {
-      params: { limit },
-    });
-  },
+  getCategories: () => api.get('/recommendations/categories'),
 
-  getCategories: () => {
-    return api.get('/recommendations/categories');
-  },
+  getBecauseYouBorrowed: (limit = 3) =>
+    api.get('/recommendations/because-borrowed', { params: { limit } }),
 
-  getBecauseYouBorrowed: (limit = 3) => {
-    return api.get('/recommendations/because-borrowed', {
-      params: { limit },
-    });
-  },
+  getDiscoveryQueue: (limit = 12) =>
+    api.get('/recommendations/discovery-queue', { params: { limit } }),
 
-  getDiscoveryQueue: (limit = 12) => {
-    return api.get('/recommendations/discovery-queue', {
-      params: { limit },
-    });
-  },
+  getKnownAuthors: (limit = 6) => api.get('/recommendations/known-authors', { params: { limit } }),
 
-  getKnownAuthors: (limit = 6) => {
-    return api.get('/recommendations/known-authors', {
-      params: { limit },
-    });
-  },
+  getModelMetrics: () => api.get('/recommendations/metrics'),
 
-  getModelMetrics: () => {
-    return api.get('/recommendations/metrics');
-  },
+  // 🔐 rekomendacje dla aktualnego użytkownika
+  getForMe: (limit = 20) => api.get('/recommendations/user', { params: { limit } }),
 
-  getForUser: (userId, n = 20) => {
-    return api.get(`/recommendations/user/${userId}`, {
-      params: { n },
-    });
-  },
+  getSimilar: (bookId, limit = 8) =>
+    api.get(`/recommendations/similar/${bookId}`, { params: { limit } }),
 
-  getSimilar: (bookId, limit = 8) => {
-    return api.get(`/recommendations/similar/${bookId}`, {
-      params: { limit },
-    });
-  },
+  // 🧠 delegacja do InteractionService
+  reportInteraction: (bookId, interactionType, metadata = {}) =>
+    api.post('/recommendations/interaction', {
+      book_id: bookId,
+      interaction_type: interactionType,
+      metadata,
+    }),
 
-
-reportInteraction: (bookId, interactionType, metadata = {}) =>
-  api.post('/recommendations/interaction', {
-    book_id: bookId,
-    interaction_type: interactionType,
-    metadata,
-  }),
-
-
-  getHealth: () => {
-    return api.get('/recommendations/health');
-  },
+  getHealth: () => api.get('/recommendations/health'),
 };
 
 export default recommendationsAPI;

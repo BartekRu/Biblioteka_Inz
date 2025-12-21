@@ -74,9 +74,9 @@ export const usersAPI = {
 // Loans API
 export const loansAPI = {
   getAll: (params = {}) => api.get('/loans/', { params }),
-  getMine: () => api.get('/loans/me'),
+  getMine: () => api.get('/loans/my-loans'),
   getById: (id) => api.get(`/loans/${id}`),
-  create: (data) => api.post('/loans/', data),
+  create: (data) => api.post('/loans/borrow', data),
   return: (id, data = {}) => api.post(`/loans/${id}/return`, data),
   renew: (id) => api.post(`/loans/${id}/renew`),
   canBorrow: (bookId) => api.get(`/loans/can-borrow/${bookId}`),
