@@ -4,9 +4,7 @@ import {
   Paper,
   Typography,
   Box,
-  TextField,
   Chip,
-  Stack,
   Button,
   CircularProgress,
   Alert,
@@ -14,9 +12,15 @@ import {
   Card,
   CardContent,
   Rating,
+  Grid,
+  Stack,
 } from '@mui/material';
+
 import AutoStoriesIcon from '@mui/icons-material/AutoStories';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import StarIcon from '@mui/icons-material/Star';
+
 import { usersAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -24,122 +28,76 @@ const UserProfile = () => {
   const { loading: authLoading } = useAuth();
 
   const [profile, setProfile] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
-  const [genreInput, setGenreInput] = useState('');
-  const [authorInput, setAuthorInput] = useState('');
 
   const [recommendations, setRecommendations] = useState([]);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState('');
+  const [recOffset, setRecOffset] = useState(0);
 
-  const fetchRecommendations = useCallback(async () => {
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  /* ============================
+     FETCH STATS (INTERACTIONS)
+  ============================ */
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const res = await usersAPI.getStats();
+      setStats(res.data);
+    } catch (err) {
+      console.error('Stats error:', err);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  /* ============================
+     FETCH RECOMMENDATIONS
+  ============================ */
+  const fetchRecommendations = useCallback(async (offset = 0) => {
     setRecLoading(true);
     setRecError('');
     try {
-      const recRes = await usersAPI.getRecommendations({ n: 8 });
-      setRecommendations(recRes.data);
+      const res = await usersAPI.getRecommendations({
+        n: 8,
+        offset,
+        randomize: false,
+      });
+
+      setRecommendations(Array.isArray(res.data) ? res.data : []);
+      setRecOffset(offset);
     } catch (err) {
-      console.error(err);
       const status = err.response?.status;
-      if (status === 400) {
-        setRecError('Dodaj ulubione gatunki lub autorów, aby zobaczyć spersonalizowane rekomendacje.');
-      } else {
-        setRecError('Nie udało się pobrać rekomendacji.');
-      }
+      setRecError(
+        status === 400
+          ? 'Brak wystarczających interakcji do wygenerowania rekomendacji.'
+          : 'Nie udało się pobrać rekomendacji.'
+      );
     } finally {
       setRecLoading(false);
     }
   }, []);
 
+  /* ============================
+     INIT
+  ============================ */
   useEffect(() => {
     const fetchProfile = async () => {
-      try {
-        const res = await usersAPI.getMe();
-        setProfile(res.data);
-      } catch (err) {
-        console.error(err);
-        setError('Nie udało się pobrać profilu użytkownika.');
-      }
+      const res = await usersAPI.getMe();
+      setProfile(res.data);
     };
 
     fetchProfile();
-    fetchRecommendations();
-  }, [fetchRecommendations]);
+    fetchStats();
+    fetchRecommendations(0);
+  }, [fetchStats, fetchRecommendations]);
 
-  const handleFieldChange = (field) => (e) => {
-    setProfile((prev) => ({
-      ...prev,
-      [field]: e.target.value,
-    }));
-  };
-
-  const handleAddChip = async (field, value, setInput) => {
-    if (!value.trim()) return;
-    
-    const newValue = [...(profile[field] || []), value.trim()];
-    
-    setProfile((prev) => ({
-      ...prev,
-      [field]: newValue,
-    }));
-    setInput('');
-    
-    try {
-      await usersAPI.updateMe({ [field]: newValue });
-      setSuccess(`Dodano: ${value.trim()}`);
-      setTimeout(() => setSuccess(''), 2000);
-      
-      fetchRecommendations();
-    } catch (err) {
-      console.error(err);
-      setError('Nie udało się zapisać zmian.');
-    }
-  };
-
-  const handleDeleteChip = async (field, chipToDelete) => {
-    const newValue = (profile[field] || []).filter((item) => item !== chipToDelete);
-    
-    setProfile((prev) => ({
-      ...prev,
-      [field]: newValue,
-    }));
-    
-    try {
-      await usersAPI.updateMe({ [field]: newValue });
-      
-      fetchRecommendations();
-    } catch (err) {
-      console.error(err);
-      setError('Nie udało się zapisać zmian.');
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError('');
-    setSuccess('');
-    try {
-      const payload = {
-        email: profile.email,
-        full_name: profile.full_name,
-        favorite_genres: profile.favorite_genres,
-        favorite_authors: profile.favorite_authors,
-        goodbooks_user_id: profile.goodbooks_user_id || null,
-      };
-      const res = await usersAPI.updateMe(payload);
-      setProfile(res.data);
-      setSuccess('Profil został zaktualizowany.');
-      
-      fetchRecommendations();
-    } catch (err) {
-      console.error(err);
-      setError('Nie udało się zapisać zmian.');
-    } finally {
-      setSaving(false);
-    }
+  /* ============================
+     HELPERS
+  ============================ */
+  const handleNextRecommendations = () => {
+    fetchRecommendations(recOffset + 8);
   };
 
   const getRecommendationTypeLabel = (type) => {
@@ -155,6 +113,9 @@ const UserProfile = () => {
     }
   };
 
+  /* ============================
+     LOADING
+  ============================ */
   if (authLoading || !profile) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
@@ -163,6 +124,9 @@ const UserProfile = () => {
     );
   }
 
+  /* ============================
+     RENDER
+  ============================ */
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Paper sx={{ p: 3 }}>
@@ -170,259 +134,154 @@ const UserProfile = () => {
           Mój profil
         </Typography>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-            {error}
-          </Alert>
+        {/* ============================
+           STATS (INTERACTIONS)
+        ============================ */}
+        {stats && (
+          <>
+            <Box sx={{ mt: 3, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+              <Typography variant="h6" sx={{ display: 'flex', gap: 1 }}>
+                <TrendingUpIcon /> Twoje statystyki (na podstawie interakcji)
+              </Typography>
+
+              <Grid container spacing={2} sx={{ mt: 2 }}>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="h4">{stats.total_borrows}</Typography>
+                  <Typography>Wypożyczeń</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="h4">{stats.total_reviews}</Typography>
+                  <Typography>Recenzji</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="h4">{stats.total_views}</Typography>
+                  <Typography>Wyświetleń</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="h4">{stats.avg_rating ?? 'N/A'}</Typography>
+                    <StarIcon color="warning" />
+                  </Box>
+                  <Typography>Średnia ocen</Typography>
+                </Grid>
+              </Grid>
+
+              {/* TOP 3 GENRES */}
+              {stats.top_genres?.length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography fontWeight={600} gutterBottom>
+                    📊 Twoje TOP 3 gatunki (z interakcji)
+                  </Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    {stats.top_genres.map((g, idx) => (
+                      <Chip
+                        key={g.genre}
+                        label={`${idx + 1}. ${g.genre} (${g.count})`}
+                        color={idx === 0 ? 'primary' : 'default'}
+                        sx={{ fontWeight: idx === 0 ? 700 : 500 }}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Box>
+
+            <Divider sx={{ my: 4 }} />
+          </>
         )}
 
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-            {success}
-          </Alert>
-        )}
-
-        <Box sx={{ display: 'grid', gap: 2, mb: 3, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-          <TextField
-            label="Adres e-mail"
-            value={profile.email}
-            onChange={handleFieldChange('email')}
-          />
-          <TextField
-            label="Imię i nazwisko"
-            value={profile.full_name || ''}
-            onChange={handleFieldChange('full_name')}
-          />
-          <TextField 
-            label="Rola" 
-            value={profile.role} 
-            disabled 
-          />
-          <TextField
-            label="Goodbooks User ID (opcjonalne)"
-            type="number"
-            value={profile.goodbooks_user_id ?? ''}
-            onChange={(e) =>
-              setProfile((prev) => ({
-                ...prev,
-                goodbooks_user_id: e.target.value === '' ? null : Number(e.target.value),
-              }))
-            }
-            helperText="ID z datasetu goodbooks-10k (1-53424)"
-          />
-        </Box>
-
-        <Divider sx={{ my: 3 }} />
-
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom fontWeight={600}>
-            📚 Ulubione gatunki
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Dodaj gatunki, które lubisz - rekomendacje będą dopasowane do Twoich preferencji
-          </Typography>
-          <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1, minHeight: 32 }}>
-            {(profile.favorite_genres || []).map((genre) => (
-              <Chip
-                key={genre}
-                label={genre}
-                onDelete={() => handleDeleteChip('favorite_genres', genre)}
-                color="primary"
-                variant="outlined"
-                sx={{ mb: 1 }}
-              />
-            ))}
-            {(!profile.favorite_genres || profile.favorite_genres.length === 0) && (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                Brak ulubionych gatunków
-              </Typography>
-            )}
-          </Stack>
-          <Box
-            component="form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleAddChip('favorite_genres', genreInput, setGenreInput);
-            }}
-            sx={{ display: 'flex', gap: 1 }}
-          >
-            <TextField
-              size="small"
-              label="Dodaj gatunek"
-              placeholder="np. Fantasy, Kryminał, Sci-Fi"
-              value={genreInput}
-              onChange={(e) => setGenreInput(e.target.value)}
-              sx={{ minWidth: 200 }}
-            />
-            <Button type="submit" variant="contained" disabled={!genreInput.trim()}>
-              Dodaj
-            </Button>
-          </Box>
-        </Box>
-
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom fontWeight={600}>
-            ✍️ Ulubieni autorzy
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Dodaj autorów, których książki chciałbyś zobaczyć w rekomendacjach
-          </Typography>
-          <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1, minHeight: 32 }}>
-            {(profile.favorite_authors || []).map((author) => (
-              <Chip
-                key={author}
-                label={author}
-                onDelete={() => handleDeleteChip('favorite_authors', author)}
-                color="secondary"
-                variant="outlined"
-                sx={{ mb: 1 }}
-              />
-            ))}
-            {(!profile.favorite_authors || profile.favorite_authors.length === 0) && (
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                Brak ulubionych autorów
-              </Typography>
-            )}
-          </Stack>
-          <Box
-            component="form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleAddChip('favorite_authors', authorInput, setAuthorInput);
-            }}
-            sx={{ display: 'flex', gap: 1 }}
-          >
-            <TextField
-              size="small"
-              label="Dodaj autora"
-              placeholder="np. Sapkowski, Rowling"
-              value={authorInput}
-              onChange={(e) => setAuthorInput(e.target.value)}
-              sx={{ minWidth: 200 }}
-            />
-            <Button type="submit" variant="contained" disabled={!authorInput.trim()}>
-              Dodaj
-            </Button>
-          </Box>
-        </Box>
-
-        <Divider sx={{ my: 3 }} />
-
-        <Box sx={{ mt: 4 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {/* ============================
+           RECOMMENDATIONS
+        ============================ */}
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="h6" sx={{ display: 'flex', gap: 1 }}>
               <AutoStoriesIcon /> Polecane dla Ciebie
             </Typography>
+
             <Button
-              startIcon={<RefreshIcon />}
-              onClick={fetchRecommendations}
-              disabled={recLoading}
               size="small"
+              startIcon={<RefreshIcon />}
+              onClick={handleNextRecommendations}
+              disabled={recLoading}
             >
-              Odśwież
+              Następne
             </Button>
           </Box>
 
           {recLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-              <CircularProgress size={24} />
-            </Box>
+            <CircularProgress size={24} />
           ) : recError ? (
-            <Alert severity="info" sx={{ mt: 1 }}>
-              {recError}
-            </Alert>
+            <Alert severity="info">{recError}</Alert>
           ) : recommendations.length === 0 ? (
             <Alert severity="info">
-              Dodaj ulubione gatunki lub autorów powyżej, aby zobaczyć spersonalizowane rekomendacje!
+              Brak rekomendacji – wykonaj więcej interakcji (wypożyczenia, oceny, przeglądanie
+              książek).
             </Alert>
           ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, 1fr)',
-                  md: 'repeat(3, 1fr)',
-                  lg: 'repeat(4, 1fr)',
-                },
-                gap: 2,
-                mt: 1,
-              }}
-            >
+            <Grid container spacing={2}>
               {recommendations.map((rec) => {
+                const genres = Array.isArray(rec.genre) ? rec.genre : rec.genre ? [rec.genre] : [];
+
+                const authors = Array.isArray(rec.authors)
+                  ? rec.authors
+                  : rec.author
+                  ? [rec.author]
+                  : [];
+
                 const typeInfo = getRecommendationTypeLabel(rec.recommendation_type);
+
                 return (
-                  <Card key={rec.book_id} elevation={2} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    <CardContent sx={{ flexGrow: 1 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                        <Typography variant="subtitle1" fontWeight={600} sx={{ lineHeight: 1.3 }}>
-                          {rec.title}
-                        </Typography>
-                        <Chip
-                          label={typeInfo.label}
-                          color={typeInfo.color}
-                          size="small"
-                          sx={{ ml: 1, flexShrink: 0 }}
-                        />
-                      </Box>
-                      
-                      <Typography variant="body2" color="text.secondary" gutterBottom>
-                        {rec.author}
-                      </Typography>
+                  <Grid item xs={12} sm={6} md={3} key={rec._id}>
+                    <Card sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Typography fontWeight={600}>{rec.title}</Typography>
 
-                      {rec.genre && rec.genre.length > 0 && (
-                        <Box sx={{ mt: 1, mb: 1 }}>
-                          {rec.genre.slice(0, 2).map((g) => (
-                            <Chip
-                              key={g}
-                              label={g}
-                              size="small"
-                              variant="outlined"
-                              sx={{ mr: 0.5, mb: 0.5, fontSize: '0.7rem' }}
-                            />
-                          ))}
-                        </Box>
-                      )}
+                        {authors.length > 0 && (
+                          <Typography variant="body2" color="text.secondary">
+                            {authors.join(', ')}
+                          </Typography>
+                        )}
 
-                      {rec.average_rating != null && rec.average_rating > 0 && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                        {genres.length > 0 && (
+                          <Typography variant="caption" color="text.secondary">
+                            {genres.join(', ')}
+                          </Typography>
+                        )}
+
+                        {rec.average_rating && (
                           <Rating
                             value={rec.average_rating}
                             precision={0.1}
-                            size="small"
                             readOnly
+                            size="small"
+                            sx={{ mt: 1 }}
                           />
-                          <Typography variant="body2" sx={{ ml: 1 }}>
-                            {Number(rec.average_rating).toFixed(1)}
+                        )}
+
+                        {rec.match_reason && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ display: 'block', mt: 1 }}
+                          >
+                            💡 {rec.match_reason}
                           </Typography>
-                        </Box>
-                      )}
+                        )}
 
-                      {rec.match_reason && (
-                        <Typography
-                          variant="caption"
-                          color="success.main"
-                          sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}
-                        >
-                          {rec.match_reason}
-                        </Typography>
-                      )}
-
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                        Score: {Number(rec.score).toFixed(2)}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                        <Chip
+                          label={typeInfo.label}
+                          size="small"
+                          color={typeInfo.color}
+                          sx={{ mt: 1 }}
+                        />
+                      </CardContent>
+                    </Card>
+                  </Grid>
                 );
               })}
-            </Box>
+            </Grid>
           )}
-        </Box>
-
-        <Box sx={{ textAlign: 'right', mt: 4 }}>
-          <Button variant="contained" size="large" onClick={handleSave} disabled={saving}>
-            {saving ? 'Zapisywanie...' : 'Zapisz zmiany'}
-          </Button>
         </Box>
       </Paper>
     </Container>

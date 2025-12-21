@@ -20,15 +20,12 @@ import {
   Skeleton,
   Tooltip,
   Paper,
-  Divider,
   Alert,
-  Collapse,
 } from '@mui/material';
 import {
   ChevronLeft,
   ChevronRight,
   AutoAwesome,
-  TrendingUp,
   LocalLibrary,
   Psychology,
   Category,
@@ -37,14 +34,11 @@ import {
   Star,
   Search,
   Refresh,
-  Info,
-  BarChart,
-  Speed,
-  Diversity3,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { recommendationsAPI } from '../../services/api';
+import { useRecommendations } from '../../context/RecommendationsContext';
 
 // ============================================================================
 // STYLE CONSTANTS - Steam-inspired dark theme for library
@@ -190,7 +184,7 @@ const FeaturedCarousel = ({ books, loading }) => {
             cursor: 'pointer',
           }}
           onClick={() => {
-            recommendationsAPI.reportInteraction(currentBook._id, 'click', {
+            recommendationsAPI.reportInteraction(currentBook._id, 'view', {
               source: 'featured',
             });
             navigate(`/books/${currentBook._id}`);
@@ -656,7 +650,7 @@ const BecauseYouSection = ({ sourceBook, recommendations, loading }) => {
             key={book._id}
             book={book}
             onClick={() => {
-              recommendationsAPI.reportInteraction(book._id, 'click', {
+              recommendationsAPI.reportInteraction(book._id, 'view', {
                 source: 'because-borrowed',
                 sourceBookId: sourceBook?._id,
               });
@@ -985,8 +979,6 @@ const DiscoveryQueue = ({ books, onExplore, loading }) => {
 // ============================================================================
 
 const ModelMetricsPanel = ({ metrics, loading }) => {
-  const [expanded, setExpanded] = useState(false);
-
   if (loading) {
     return (
       <Box sx={{ mb: 6 }}>
@@ -1002,50 +994,6 @@ const ModelMetricsPanel = ({ metrics, loading }) => {
 
   return <Box sx={{ mb: 6 }}></Box>;
 };
-
-const MetricBox = ({ icon, label, value, format, description, color }) => (
-  <Box sx={{ textAlign: 'center' }}>
-    <Box
-      sx={{
-        color: color,
-        mb: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 1,
-      }}
-    >
-      {icon}
-      <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
-        {label}
-      </Typography>
-    </Box>
-    <Typography variant="h4" sx={{ color: 'white', fontWeight: 700, fontFamily: 'monospace' }}>
-      {format === 'percent' ? `${(value * 100).toFixed(2)}%` : value}
-    </Typography>
-    <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
-      {description}
-    </Typography>
-  </Box>
-);
-
-const DetailRow = ({ label, value }) => (
-  <Box
-    sx={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      py: 0.5,
-      borderBottom: `1px solid ${COLORS.bgDark}`,
-    }}
-  >
-    <Typography variant="body2" sx={{ color: COLORS.textSecondary }}>
-      {label}
-    </Typography>
-    <Typography variant="body2" sx={{ color: COLORS.textPrimary }}>
-      {value}
-    </Typography>
-  </Box>
-);
 
 // ============================================================================
 // FROM AUTHORS YOU KNOW - Od autorów których znasz
@@ -1159,7 +1107,7 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
                     position: 'absolute',
                     top: 8,
                     left: 8,
-                    bgcolor: '#f44336',
+                    bgcolor: COLORS.successGreen,
                     color: 'white',
                     px: 1,
                     py: 0.25,
@@ -1243,14 +1191,10 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
 
 const BrowseOptions = ({ onNavigate }) => {
   const options = [
-    { label: 'Nowości', path: '/books?sort=newest', color: '#66c0f4' },
-    { label: 'Popularne', path: '/books?sort=popular', color: '#66c0f4' },
-    {
-      label: 'Najwyżej oceniane',
-      path: '/books?sort=rating',
-      color: '#66c0f4',
-    },
-    { label: 'Według tagów', path: '/books/tags', color: '#66c0f4' },
+    { label: 'Nowości', path: '/books?sort=newest' },
+    { label: 'Popularne', path: '/books?sort=popular' },
+    { label: 'Najwyżej oceniane', path: '/books?sort=rating' },
+    { label: 'Według tagów', path: '/books/tags' },
   ];
 
   return (
@@ -1290,15 +1234,18 @@ const BrowseOptions = ({ onNavigate }) => {
   );
 };
 
-// ============================================================================
-// MAIN COMPONENT - Główny komponent strony
-// ============================================================================
-
 const RecommendationsPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const { refreshTrigger } = useRecommendations();
+
+  // ✅ DODAJ - Śledź poprzedni refreshTrigger
+  const prevTriggerRef = React.useRef(refreshTrigger);
+
+  console.log('🎨 RecommendationsPage render, refreshTrigger =', refreshTrigger);
 
   // State for different sections
   const [featuredBooks, setFeaturedBooks] = useState([]);
@@ -1308,64 +1255,69 @@ const RecommendationsPage = () => {
   const [knownAuthors, setKnownAuthors] = useState([]);
   const [modelMetrics, setModelMetrics] = useState(null);
 
-  // Fetch all recommendations data
+  // ✅ DODAJ - Reaguj na zmianę refreshTrigger ZAWSZE
   useEffect(() => {
-    const fetchRecommendations = async () => {
-      if (!user) {
-        navigate('/login');
-        return;
+    if (prevTriggerRef.current !== refreshTrigger) {
+      console.log(`🔔 refreshTrigger changed: ${prevTriggerRef.current} → ${refreshTrigger}`);
+      prevTriggerRef.current = refreshTrigger;
+
+      // Force refresh - wywołaj fetchRecommendations
+      if (user) {
+        fetchRecommendations();
       }
+    }
+  }, [refreshTrigger]); // ← Tylko refreshTrigger, NIE user/navigate
 
-      try {
-        setLoading(true);
-        setError(null);
+  // Główna funkcja fetch - wydziel ją aby móc wywołać z useEffect
+  const fetchRecommendations = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
 
-        const [
-          userRecRes,
-          categoriesRes,
-          becauseRes,
-          queueRes, // zostawiamy, na razie nie użyjemy
-          authorsRes,
-          metricsRes,
-        ] = await Promise.allSettled([
-          recommendationsAPI.getUserLightGCN(30), // TU: LightGCN PRO
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log('🔄 Fetching recommendations... (refreshTrigger =', refreshTrigger, ')');
+
+      const [userRecRes, categoriesRes, becauseRes, queueRes, authorsRes, metricsRes] =
+        await Promise.allSettled([
+          recommendationsAPI.getUserLightGCN(30),
           recommendationsAPI.getCategories(),
           recommendationsAPI.getBecauseYouBorrowed(),
-          recommendationsAPI.getDiscoveryQueue(), // może się przydać jako fallback
+          recommendationsAPI.getDiscoveryQueue(),
           recommendationsAPI.getKnownAuthors(),
           recommendationsAPI.getModelMetrics(),
         ]);
 
-        if (userRecRes.status === 'fulfilled') {
-          const recs = userRecRes.value.data || [];
-
-          // główny carousel bierze pierwsze 10
-          setFeaturedBooks(recs.slice(0, 10));
-
-          // kolejka odkryć – cała lista (albo np. od 10. pozycji)
-          setDiscoveryQueue(recs);
-        }
-
-        if (categoriesRes.status === 'fulfilled') {
-          setCategories(categoriesRes.value.data || []);
-        }
-        if (becauseRes.status === 'fulfilled') {
-          setBecauseSections(becauseRes.value.data || []);
-        }
-        if (authorsRes.status === 'fulfilled') {
-          setKnownAuthors(authorsRes.value.data || []);
-        }
-        if (metricsRes.status === 'fulfilled') {
-          setModelMetrics(metricsRes.value.data);
-        }
-      } catch (err) {
-        console.error('Error fetching recommendations:', err);
-        setError('Nie udało się załadować rekomendacji. Spróbuj ponownie.');
-      } finally {
-        setLoading(false);
+      if (userRecRes.status === 'fulfilled') {
+        const recs = userRecRes.value.data || [];
+        setFeaturedBooks(recs.slice(0, 10));
+        setDiscoveryQueue(recs);
       }
-    };
 
+      if (categoriesRes.status === 'fulfilled') {
+        setCategories(categoriesRes.value.data || []);
+      }
+      if (becauseRes.status === 'fulfilled') {
+        setBecauseSections(becauseRes.value.data || []);
+      }
+      if (authorsRes.status === 'fulfilled') {
+        setKnownAuthors(authorsRes.value.data || []);
+      }
+      if (metricsRes.status === 'fulfilled') {
+        setModelMetrics(metricsRes.value.data);
+      }
+    } catch (err) {
+      console.error('Error fetching recommendations:', err);
+      setError('Nie udało się załadować rekomendacji. Spróbuj ponownie.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchRecommendations();
   }, [user, navigate]);
 
@@ -1377,9 +1329,8 @@ const RecommendationsPage = () => {
     navigate('/discovery-queue');
   };
 
-  const handleRefresh = () => {
-    window.location.reload();
-  };
+  // ✅ POPRAWKA: Nie potrzebujemy triggerRefresh - można usunąć przycisk refresh
+  // lub zaimplementować go inaczej jeśli potrzebny
 
   if (!user) {
     return null;
@@ -1412,11 +1363,6 @@ const RecommendationsPage = () => {
               Spersonalizowane dla Ciebie przez AI
             </Typography>
           </Box>
-          <Tooltip title="Odśwież rekomendacje">
-            <IconButton onClick={handleRefresh} sx={{ color: COLORS.textSecondary }}>
-              <Refresh />
-            </IconButton>
-          </Tooltip>
         </Box>
 
         {/* Error alert */}

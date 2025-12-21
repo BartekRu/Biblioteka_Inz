@@ -22,15 +22,25 @@ class InteractionService:
     Centralized interaction management
     - Jedna kolekcja `interactions`
     - LightGCN czyta bezpośrednio z tej kolekcji
+    - Aktualizuje embeddingi przez adapter (opcjonalnie)
     """
 
     def __init__(
         self,
         interactions_collection: AsyncIOMotorCollection,
-        recommendation_service,
+        recommendation_service,  # Może być LightGCNAdapter lub None
     ):
         self.interactions = interactions_collection
         self.rec_service = recommendation_service
+        
+        # Sprawdź czy mamy aktywny serwis rekomendacji
+        self.embeddings_enabled = recommendation_service is not None
+        
+        if not self.embeddings_enabled:
+            logger.warning(
+                "⚠️  InteractionService initialized WITHOUT recommendation service - "
+                "embeddings will NOT be updated"
+            )
 
     async def create_interaction(
         self,
@@ -40,12 +50,26 @@ class InteractionService:
         metadata: Optional[Dict] = None,
         update_embedding: bool = True,
     ) -> Dict:
+        """
+        Tworzy nową interakcję i opcjonalnie aktualizuje embeddingi
+        
+        Args:
+            user_id: MongoDB user_id
+            book_id: MongoDB book_id
+            interaction_type: 'view', 'review', lub 'borrow'
+            metadata: Dodatkowe dane (opcjonalne)
+            update_embedding: Czy aktualizować embeddingi (domyślnie True)
+        
+        Returns:
+            Dict z wynikami: interaction_id, weight, embedding_updated, etc.
+        """
         # 🔒 Walidacja typu
         if interaction_type not in INTERACTION_WEIGHTS:
             raise ValueError(f"Invalid interaction type: {interaction_type}")
 
         weight = INTERACTION_WEIGHTS[interaction_type]
         embedding_updated = False
+        embedding_result = None
 
         interaction_doc = {
             "user_id": user_id,
@@ -62,35 +86,50 @@ class InteractionService:
 
         logger.info(
             f"✅ Interaction created | {interaction_type} | "
-            f"user={user_id} book={book_id} weight={weight}"
+            f"user={user_id[:12]}... book={book_id[:12]}... weight={weight}"
         )
 
         # 2️⃣ Aktualizacja embeddingów (opcjonalna)
-        if update_embedding:
+        if update_embedding and self.embeddings_enabled:
             try:
-                await self.rec_service.update_user_embedding_incremental(
+                embedding_result = await self.rec_service.update_user_embedding_incremental(
                     user_id=user_id,
                     book_id=book_id,
                     interaction_weight=weight,
                 )
 
-                embedding_updated = True
+                if embedding_result and embedding_result.get("success"):
+                    embedding_updated = True
 
-                await self.interactions.update_one(
-                    {"_id": result.inserted_id},
-                    {"$set": {"embedding_updated": True}},
-                )
+                    # Oznacz w DB że embedding został zaktualizowany
+                    await self.interactions.update_one(
+                        {"_id": result.inserted_id},
+                        {"$set": {"embedding_updated": True}},
+                    )
 
-                logger.info(f"🧠 Embedding updated for user={user_id}")
+                    logger.info(
+                        f"🧠 Embedding updated for user={user_id[:12]}... "
+                        f"(total_updates={embedding_result.get('total_updates', '?')})"
+                    )
+                else:
+                    reason = embedding_result.get("reason", "unknown") if embedding_result else "no_result"
+                    logger.warning(
+                        f"⚠️  Embedding NOT updated: user={user_id[:12]}... "
+                        f"book={book_id[:12]}... reason={reason}"
+                    )
 
             except Exception as e:
-                logger.error(f"❌ Embedding update failed: {e}")
+                logger.error(f"❌ Embedding update failed: {e}", exc_info=True)
+        
+        elif update_embedding and not self.embeddings_enabled:
+            logger.debug("⚠️  Embedding update skipped - recommendation service not available")
 
         return {
             "interaction_id": str(result.inserted_id),
             "interaction_type": interaction_type,
             "weight": weight,
             "embedding_updated": embedding_updated,
+            "embedding_result": embedding_result,  # Pełne info z adaptera
             "created_at": interaction_doc["created_at"],
         }
 
@@ -100,6 +139,7 @@ class InteractionService:
         interaction_type: Optional[str] = None,
         limit: int = 100,
     ) -> list:
+        """Pobiera interakcje użytkownika"""
         query = {"user_id": user_id}
         if interaction_type:
             query["interaction_type"] = interaction_type
@@ -122,3 +162,32 @@ class InteractionService:
         logger.info(f"📊 Breakdown: {stats}")
 
         return interactions
+    
+    async def get_embedding_stats(self) -> Dict:
+        """
+        Statystyki dotyczące aktualizacji embeddingów
+        """
+        total = await self.interactions.count_documents({})
+        updated = await self.interactions.count_documents({"embedding_updated": True})
+        
+        # Per typ
+        stats_by_type = {}
+        for itype in INTERACTION_WEIGHTS.keys():
+            type_total = await self.interactions.count_documents({"interaction_type": itype})
+            type_updated = await self.interactions.count_documents({
+                "interaction_type": itype,
+                "embedding_updated": True
+            })
+            stats_by_type[itype] = {
+                "total": type_total,
+                "embedding_updated": type_updated,
+                "update_rate": round(type_updated / type_total * 100, 2) if type_total > 0 else 0
+            }
+        
+        return {
+            "total_interactions": total,
+            "embeddings_updated": updated,
+            "update_rate_percent": round(updated / total * 100, 2) if total > 0 else 0,
+            "embeddings_enabled": self.embeddings_enabled,
+            "by_type": stats_by_type
+        }

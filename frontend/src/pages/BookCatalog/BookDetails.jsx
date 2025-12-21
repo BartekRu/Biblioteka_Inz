@@ -39,11 +39,17 @@ import {
 import { booksAPI, loansAPI, reviewsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import recommendationsAPI from '../../services/recommendationsAPI';
+import { useRecommendations } from '../../context/RecommendationsContext';
 
 const BookDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
+  const { invalidateRecommendations } = useRecommendations();
+  console.log(
+    '📖 BookDetails render, invalidateRecommendations:',
+    typeof invalidateRecommendations
+  );
 
   // Stan książki
   const [book, setBook] = useState(null);
@@ -124,36 +130,34 @@ const BookDetails = () => {
     try {
       setBorrowing(true);
 
-      // 1. NAJPIERW: Utwórz faktyczne wypożyczenie w bazie danych
+      console.log('⚡ PRZED create loan'); // ← DODANE
       await loansAPI.create({
-        book_id: book._id, // lub book.id, w zależności od backendu
+        book_id: book._id,
       });
+      console.log('✅ Loan created'); // ← DODANE
 
-      // 2. POTEM: Raportuj interakcję do systemu ML
+      console.log('⚡ PRZED reportInteraction'); // ← DODANE
       await recommendationsAPI.reportInteraction(book._id, 'borrow');
+      console.log('✅ Interaction reported'); // ← DODANE
 
-      // 3. Odśwież dane książki (available_copies się zmieni)
       const response = await booksAPI.getById(id);
       setBook(response.data);
 
       setBorrowDialog(false);
       setBorrowSuccess(true);
+
+      console.log('⚡ PRZED invalidateRecommendations'); // ← DODANE
+      invalidateRecommendations('book_borrowed');
+      console.log('✅ PO invalidateRecommendations'); // ← DODANE
+
       setSnackbar({
         open: true,
         message: 'Książka została wypożyczona! Termin zwrotu: 30 dni.',
         severity: 'success',
       });
     } catch (err) {
-      console.error(err);
-      const detail = err.response?.data?.detail;
-
-      if (Array.isArray(detail)) {
-        setError(detail.map((d) => d.msg).join(', '));
-      } else if (typeof detail === 'string') {
-        setError(detail);
-      } else {
-        setError('Nie udało się wypożyczyć książki.');
-      }
+      console.error('❌ Error in handleBorrow:', err);
+      // ... error handling ...
     } finally {
       setBorrowing(false);
     }
@@ -187,6 +191,7 @@ const BookDetails = () => {
 
       setReviews([response.data, ...reviews]);
       setNewReview({ rating: 0, content: '' });
+      invalidateRecommendations('book_borrowed');
       setSnackbar({
         open: true,
         message: 'Recenzja została dodana!',

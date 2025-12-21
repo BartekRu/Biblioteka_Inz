@@ -5,6 +5,9 @@ from bson import ObjectId
 import random
 import json
 from pathlib import Path
+from fastapi import Request
+from sse_starlette.sse import EventSourceResponse
+import logging
 
 # Import rozszerzonego serwisu (z incremental learning)
 import recommendation_engine.goodbooks_lightgcn_service as service_module
@@ -19,6 +22,12 @@ from pydantic import BaseModel
 
 from ..database import get_database
 from .auth import get_current_user
+
+# Logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -545,6 +554,7 @@ async def get_user_lightgcn_recommendations(
 ):
     """
     Rekomendacje z DYNAMIC EMBEDDINGS!
+    WYKLUCZAMY wypożyczone książki
     """
     db = get_database()
     user_id = getattr(current_user, "id", None)
@@ -556,11 +566,12 @@ async def get_user_lightgcn_recommendations(
     except Exception:
         raise HTTPException(status_code=400, detail="Nieprawidłowe ID użytkownika")
 
-    # 1. Zbierz wypożyczone goodbooks_ids (do wykluczenia)
+    # ✅ ZMIANA 1: Zbierz WSZYSTKIE wypożyczone książki (nie tylko aktywne!)
     borrowed_goodbooks_ids = set()
     borrowed_mongo_ids = set()
 
-    async for loan in db.loans.find({"user_id": uid}):
+    # Pobierz AKTYWNE wypożyczenia
+    async for loan in db.loans.find({"user_id": uid, "status": "active"}):
         book_id = loan.get("book_id")
         if not book_id:
             continue
@@ -578,13 +589,17 @@ async def get_user_lightgcn_recommendations(
             except (TypeError, ValueError):
                 continue
 
+    logger.info(
+        f"📊 User {uid} has {len(borrowed_goodbooks_ids)} borrowed books (excluding from recommendations)"
+    )
+
     # 2. Użyj nowego API z dynamic embeddings
     try:
         rec_goodbooks_ids = get_service().get_recommendations_for_user(
             mongo_user_id=str(uid),
-            n=limit * 2,
-            exclude_goodbooks_ids=borrowed_goodbooks_ids,
-            use_cache=True,
+            n=limit * 2,  # Pobierz więcej bo część wykluczymy
+            exclude_goodbooks_ids=borrowed_goodbooks_ids,  # ← WYKLUCZAMY!
+            use_cache=False,  # ✅ ZMIANA 2: Wyłącz cache dla świeżych danych
         )
 
     except Exception as e:
@@ -614,11 +629,15 @@ async def get_user_lightgcn_recommendations(
         if not book:
             continue
 
+        # ✅ ZMIANA 3: Dodatkowa walidacja - pomiń wypożyczone
         if str(book["_id"]) in borrowed_mongo_ids:
+            logger.debug(f"⏭️  Skipping borrowed book: {book.get('title')}")
             continue
 
         book = normalize_book(serialize_doc(book))
         results.append(book)
+
+    logger.info(f"✅ Returning {len(results)} recommendations for user {uid}")
 
     return results
 
@@ -686,3 +705,41 @@ async def get_service_stats(current_user=Depends(get_current_user)):
         return get_service().get_stats()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/embedding-stats")
+async def get_embedding_stats(
+    interaction_service: InteractionService = Depends(get_interaction_service),
+):
+    """
+    Statystyki aktualizacji embeddingów
+    Pokazuje ile interakcji ma zaktualizowane embeddingi
+    """
+    stats = await interaction_service.get_embedding_stats()
+
+    # Dodaj statystyki z GoodbooksLightGCNService
+    try:
+        service_stats = get_service().get_stats()
+        stats["lightgcn_service"] = service_stats
+    except Exception as e:
+        stats["lightgcn_service"] = {"error": str(e)}
+
+    return stats
+
+
+@router.get("/sse-updates")
+async def recommendation_updates(request: Request, current_user=Depends(get_current_user)):
+    """Server-Sent Events stream for recommendation updates"""
+
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+
+            # Sprawdź czy są nowe rekomendacje
+            # (wymaga implementacji kolejki/pub-sub)
+            yield {"event": "update", "data": json.dumps({"timestamp": datetime.now().isoformat()})}
+
+            await asyncio.sleep(30)  # Check every 30s
+
+    return EventSourceResponse(event_generator())

@@ -13,6 +13,7 @@ import BookDetails from './pages/BookCatalog/BookDetails';
 import MyLoans from './pages/Loans/MyLoans';
 import RecommendationsPage from './pages/Recomendations/RecomendationsPage';
 import DiscoveryQueuePage from './pages/Recomendations/DiscoveryQueuePage';
+import { RecommendationsProvider } from './context/RecommendationsContext';
 
 const theme = createTheme({
   palette: {
@@ -41,20 +42,22 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
-        <Router>
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/books" element={<Books />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/profile" element={<UserProfile />} />
-            <Route path="/books/:id" element={<BookDetails />} />
-             <Route path="/my-loans" element={<MyLoans />} />
-            <Route path="/recommendations" element={<RecommendationsPage />} />
-            <Route path="/discovery-queue" element={<DiscoveryQueuePage />} />
-          </Routes>
-        </Router>
+        <RecommendationsProvider>
+          <Router>
+            <Navbar />
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/books" element={<Books />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/profile" element={<UserProfile />} />
+              <Route path="/books/:id" element={<BookDetails />} />
+              <Route path="/my-loans" element={<MyLoans />} />
+              <Route path="/recommendations" element={<RecommendationsPage />} />
+              <Route path="/discovery-queue" element={<DiscoveryQueuePage />} />
+            </Routes>
+          </Router>
+        </RecommendationsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

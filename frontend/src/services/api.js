@@ -63,12 +63,12 @@ export const authAPI = {
   getMe: () => api.get('/auth/me'),
 };
 
-// Users API
 export const usersAPI = {
   getMe: () => api.get('/users/me'),
   updateMe: (data) => api.patch('/users/me', data),
-  getRecommendations: (params) => api.get('/users/me/recommendations', { params }),
   setPreferences: (data) => api.post('/users/me/preferences', data),
+  getStats: () => api.get('/users/me/stats'),
+  getRecommendations: (params = {}) => api.get('/users/me/recommendations', { params }),
 };
 
 // Loans API
@@ -82,7 +82,6 @@ export const loansAPI = {
   canBorrow: (bookId) => api.get(`/loans/can-borrow/${bookId}`),
 };
 
-// Reviews API
 export const reviewsAPI = {
   getByBook: (bookId) => api.get(`/reviews/book/${bookId}`),
   getMine: () => api.get('/reviews/me'),
@@ -91,14 +90,9 @@ export const reviewsAPI = {
   delete: (id) => api.delete(`/reviews/${id}`),
 };
 
-// ============================================================================
-// RECOMMENDATIONS API - dla strony rekomendacji
-// ============================================================================
 export const recommendationsAPI = {
-  // Rekomendacje LightGCN PRO dla zalogowanego użytkownika
   getUserLightGCN: (limit = 20) => api.get('/recommendations/user-lightgcn', { params: { limit } }),
 
-  // Wyróżnione rekomendacje (carousel)
   getFeatured: (limit = 10) => api.get('/recommendations/featured', { params: { limit } }),
 
   // Kategorie z okładkami
@@ -124,12 +118,10 @@ export const recommendationsAPI = {
 
   // Raportuj interakcję
   reportInteraction: (bookId, interactionType, metadata = {}) =>
-    api.post('/recommendations/interaction', null, {
-      params: {
-        book_id: bookId,
-        interaction_type: interactionType,
-      },
-      data: metadata,
+    api.post('/recommendations/interaction', {
+      book_id: bookId,
+      interaction_type: interactionType,
+      metadata,
     }),
 
   // Health check
