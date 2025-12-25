@@ -1,11 +1,13 @@
-// services/api.js - UPDATED WITH MMR SUPPORT
+// services/api.js - CLEAN & ORGANIZED
 
 import axios from 'axios';
 
-// Base URL z zmiennej środowiskowej lub domyślna
+// ============================================================================
+// AXIOS SETUP
+// ============================================================================
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-// Axios instance z automatycznym dodawaniem tokena
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -13,7 +15,7 @@ const apiClient = axios.create({
   },
 });
 
-// Interceptor dodający token do każdego requesta
+// Add token to every request
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -25,12 +27,11 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Interceptor do obsługi błędów
+// Handle 401 errors (expired token)
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token wygasł - wyloguj użytkownika
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
@@ -39,20 +40,16 @@ apiClient.interceptors.response.use(
 );
 
 // ============================================================================
-// RECOMMENDATIONS API - UPDATED WITH MMR
+// RECOMMENDATIONS API
 // ============================================================================
 
 export const recommendationsAPI = {
+  // ─────────────────────────────────────────────────────────────────────────
+  // CORE RECOMMENDATIONS
+  // ─────────────────────────────────────────────────────────────────────────
+
   /**
-   * Pobiera rekomendacje LightGCN z opcjonalnym MMR re-ranking
-   * 
-   * @param {number} limit - Liczba rekomendacji (domyślnie 20)
-   * @param {number} offset - Offset dla paginacji/rotacji (domyślnie 0)
-   * @param {boolean} useMmr - Czy użyć MMR re-ranking (domyślnie true)
-   * @param {number} lambdaParam - Balans trafność/różnorodność 0.0-1.0 (domyślnie 0.7)
-   * @param {boolean} enforceAuthorLimit - Czy ograniczać autorów (domyślnie true)
-   * @param {number} maxPerAuthor - Max książek od autora (domyślnie 2)
-   * @returns {Promise} Response z { recommendations: [...], metadata: {...} }
+   * Główne rekomendacje LightGCN + MMR
    */
   getUserLightGCN: (
     limit = 20,
@@ -75,54 +72,170 @@ export const recommendationsAPI = {
   },
 
   /**
-   * Pobiera wyróżnione książki dopasowane do użytkownika
+   * Wyróżnione książki
    */
   getFeatured: (limit = 10) => {
     return apiClient.get(`/v1/recommendations/featured?limit=${limit}`);
   },
 
   /**
-   * Pobiera kategorie książek z przykładowymi okładkami
+   * Kategorie z przykładowymi okładkami
    */
   getCategories: () => {
     return apiClient.get('/v1/recommendations/categories');
   },
 
   /**
-   * Pobiera sekcje "Ponieważ wypożyczyłeś X"
-   */
-  getBecauseYouBorrowed: (limit = 3) => {
-    return apiClient.get(`/v1/recommendations/because-borrowed?limit=${limit}`);
-  },
-
-  /**
-   * Pobiera kolejkę odkryć (discovery queue)
+   * Kolejka odkryć
    */
   getDiscoveryQueue: (limit = 12) => {
     return apiClient.get(`/v1/recommendations/discovery-queue?limit=${limit}`);
   },
 
   /**
-   * Pobiera znanych autorów użytkownika
+   * Znani autorzy
    */
   getKnownAuthors: (limit = 6) => {
     return apiClient.get(`/v1/recommendations/known-authors?limit=${limit}`);
   },
 
   /**
-   * Pobiera podobne książki do danej książki
+   * Podobne książki do danej książki
    */
   getSimilar: (bookId, limit = 8) => {
     return apiClient.get(`/v1/recommendations/similar/${bookId}?limit=${limit}`);
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // SEKCJA B: EXPLAINABLE RECOMMENDATIONS
+  // ─────────────────────────────────────────────────────────────────────────
+
   /**
-   * Raportuje interakcję użytkownika (view, review, borrow, wishlist_add/remove)
-   * WAŻNE: Używa UNIFIED endpoint - wszystkie interakcje idą do jednej kolekcji
-   * 
-   * @param {string} bookId - ID książki
-   * @param {string} interactionType - 'view' | 'review' | 'borrow' | 'wishlist_add' | 'wishlist_remove'
-   * @param {object} metadata - Dodatkowe dane (opcjonalne)
+   * "Ponieważ wypożyczyłeś X" - item-item similarity
+   */
+  getBecauseYouBorrowed: (limit = 3) => {
+    return apiClient.get(`/v1/recommendations/because-borrowed?limit=${limit}`);
+  },
+
+  /**
+   * Rekomendacje według gatunku
+   */
+  getGenreRecommendations: async (limit = 3, booksPerGenre = 10) => {
+    try {
+      const response = await apiClient.get('/v1/recommendations/by-genre', {
+        params: { limit, books_per_genre: booksPerGenre },
+      });
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.warn('⚠️ Endpoint /by-genre not implemented yet');
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Rekomendacje według autora
+   */
+  getAuthorRecommendations: async (limit = 3, booksPerAuthor = 10) => {
+    try {
+      const response = await apiClient.get('/v1/recommendations/by-author', {
+        params: { limit, books_per_author: booksPerAuthor },
+      });
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.warn('⚠️ Endpoint /by-author not implemented yet');
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Książki od podobnych czytelników (user-based CF)
+   */
+  getSimilarReadersBooks: async (limit = 15) => {
+    try {
+      const response = await apiClient.get('/v1/recommendations/similar-readers', {
+        params: { limit },
+      });
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.warn('⚠️ Endpoint /similar-readers not implemented yet');
+        return { data: { books: [], similar_user_count: 0 } };
+      }
+      throw error;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SEKCJA C: DISCOVERY
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Nowości w bibliotece (cold-start handling)
+   */
+  getNewArrivals: async (limit = 20, days = 30) => {
+    try {
+      const response = await apiClient.get('/v1/recommendations/new-arrivals', {
+        params: { limit, days },
+      });
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.warn('⚠️ Endpoint /new-arrivals not implemented yet');
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Ukryte skarby - mało popularne, wysoko oceniane
+   */
+  getHiddenGems: async (limit = 15) => {
+    try {
+      const response = await apiClient.get('/v1/recommendations/hidden-gems', {
+        params: { limit },
+      });
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.warn('⚠️ Endpoint /hidden-gems not implemented yet');
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+
+  /**
+   * Wysoko oceniane odkrycia - top-rated w ulubionych gatunkach
+   */
+  getHighlyRated: async (limit = 15, minRating = 4.5) => {
+    try {
+      const response = await apiClient.get('/v1/recommendations/highly-rated', {
+        params: { limit, min_rating: minRating },
+      });
+      return response;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        console.warn('⚠️ Endpoint /highly-rated not implemented yet');
+        return { data: [] };
+      }
+      throw error;
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INTERACTIONS & TRACKING
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Raportuje interakcję użytkownika
+   * Unified endpoint - wszystkie interakcje do jednej kolekcji
    */
   reportInteraction: (bookId, interactionType, metadata = {}) => {
     return apiClient.post('/v1/recommendations/interaction', {
@@ -132,26 +245,26 @@ export const recommendationsAPI = {
     });
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // METRICS & DEBUG
+  // ─────────────────────────────────────────────────────────────────────────
+
   /**
-   * Pobiera metryki modelu LightGCN
+   * Metryki modelu LightGCN
    */
   getModelMetrics: () => {
     return apiClient.get('/v1/recommendations/metrics');
   },
 
   /**
-   * Sprawdza status systemu rekomendacji
+   * Status systemu rekomendacji
    */
   getHealth: () => {
     return apiClient.get('/v1/recommendations/health');
   },
 
   /**
-   * 🆕 Porównuje metryki różnorodności dla różnych wartości lambda
-   * Pomocne do eksperymentowania z optymalnym λ
-   * 
-   * @param {number} n - Liczba rekomendacji do porównania
-   * @param {string} lambdaValues - Lista λ oddzielona przecinkami (np. "0.3,0.5,0.7,0.9")
+   * Porównanie różnorodności dla różnych lambda
    */
   getDiversityComparison: (n = 30, lambdaValues = '0.3,0.5,0.7,0.9') => {
     return apiClient.get('/v1/recommendations/diversity-comparison', {
@@ -160,22 +273,21 @@ export const recommendationsAPI = {
   },
 
   /**
-   * 🆕 Pobiera statystyki embeddingów (debug)
+   * Statystyki embeddingów
    */
   getEmbeddingStats: () => {
     return apiClient.get('/v1/recommendations/embedding-stats');
   },
 
   /**
-   * 🆕 Pobiera statystyki użytkownika (debug)
-   * Admin może sprawdzić dowolnego użytkownika, zwykły user tylko siebie
+   * Statystyki użytkownika (debug)
    */
   getUserStats: (userId) => {
     return apiClient.get(`/v1/recommendations/debug/user-stats/${userId}`);
   },
 
   /**
-   * 🆕 Pobiera statystyki serwisu (admin only)
+   * Statystyki serwisu (admin only)
    */
   getServiceStats: () => {
     return apiClient.get('/v1/recommendations/debug/service-stats');
@@ -250,23 +362,17 @@ export const loansAPI = {
    * Wypożycz książkę
    */
   borrow: (bookIdOrObject) => {
-    // Obsłuż zarówno string ID jak i cały obiekt książki
-    const bookId = typeof bookIdOrObject === 'string' 
-      ? bookIdOrObject 
-      : bookIdOrObject._id || bookIdOrObject.id;
-    
+    const bookId =
+      typeof bookIdOrObject === 'string' ? bookIdOrObject : bookIdOrObject._id || bookIdOrObject.id;
     return apiClient.post('/v1/loans/borrow', { book_id: String(bookId) });
   },
 
   /**
-   * Alias dla borrow() - dla kompatybilności z BookDetails.jsx
+   * Alias dla borrow() - kompatybilność z BookDetails.jsx
    */
   create: (bookIdOrObject) => {
-    // Obsłuż zarówno string ID jak i cały obiekt książki
-    const bookId = typeof bookIdOrObject === 'string' 
-      ? bookIdOrObject 
-      : bookIdOrObject._id || bookIdOrObject.id;
-    
+    const bookId =
+      typeof bookIdOrObject === 'string' ? bookIdOrObject : bookIdOrObject._id || bookIdOrObject.id;
     return apiClient.post('/v1/loans/borrow', { book_id: String(bookId) });
   },
 
@@ -279,7 +385,6 @@ export const loansAPI = {
 
   /**
    * Pobierz wypożyczenia zalogowanego użytkownika
-   * ✅ Używa /loans/me (zgodnie z Twoim backendem)
    */
   getMine: (status = null) => {
     const params = status ? { status } : {};
@@ -287,7 +392,7 @@ export const loansAPI = {
   },
 
   /**
-   * Pobierz wypożyczenia użytkownika (alias dla getMine)
+   * Alias dla getMine
    */
   getUserLoans: (status = null) => {
     const params = status ? { status } : {};
@@ -309,15 +414,12 @@ export const loansAPI = {
 export const reviewsAPI = {
   /**
    * Dodaj recenzję
-   * @param {string} bookId - ID książki
-   * @param {number} rating - Ocena (1-5)
-   * @param {string} content - Treść recenzji (opcjonalna)
    */
   create: (bookId, rating, content = '') => {
     return apiClient.post('/v1/reviews', {
       book_id: String(bookId),
       rating: Number(rating),
-      content: String(content),  // ← POPRAWKA: content zamiast comment
+      content: String(content),
     });
   },
 
@@ -356,12 +458,10 @@ export const reviewsAPI = {
 
 export const wishlistAPI = {
   add: (bookId) => {
-    // Używamy unified interaction endpoint
     return recommendationsAPI.reportInteraction(bookId, 'wishlist_add');
   },
 
   remove: (bookId) => {
-    // Używamy unified interaction endpoint
     return recommendationsAPI.reportInteraction(bookId, 'wishlist_remove');
   },
 
@@ -371,7 +471,7 @@ export const wishlistAPI = {
 };
 
 // ============================================================================
-// STATS API (dla dashboardu admina)
+// STATS API
 // ============================================================================
 
 export const statsAPI = {
@@ -393,56 +493,52 @@ export const statsAPI = {
 };
 
 // ============================================================================
-// USERS API (profile, statistics)
+// USERS API
 // ============================================================================
 
 export const usersAPI = {
   /**
-   * Pobiera profil użytkownika (używa authAPI.getCurrentUser)
+   * Profil użytkownika
    */
   getMe: () => {
     return authAPI.getCurrentUser();
   },
 
   /**
-   * Pobiera profil użytkownika (alias dla getMe)
+   * Alias dla getMe
    */
   getProfile: () => {
     return authAPI.getCurrentUser();
   },
 
   /**
-   * Pobiera statystyki użytkownika (wypożyczenia, recenzje, interakcje)
-   * UWAGA: Używa endpoint recommendations/embedding-stats jako fallback
-   * Możesz stworzyć dedykowany endpoint /v1/users/me/stats jeśli potrzebujesz
+   * Statystyki użytkownika
    */
   getUserStats: async () => {
     try {
-      // Próbuj użyć dedykowanego endpointu jeśli istnieje
       return await apiClient.get('/v1/users/me/stats');
     } catch (err) {
-      // Fallback - użyj embedding stats z recommendations
       console.log('Using embedding-stats as fallback for user stats');
       return await recommendationsAPI.getEmbeddingStats();
     }
   },
 
   /**
-   * Aktualizuje preferencje użytkownika
+   * Zaktualizuj preferencje
    */
   updatePreferences: (preferences) => {
     return apiClient.put('/v1/users/me/preferences', preferences);
   },
 
   /**
-   * Pobiera historię aktywności użytkownika
+   * Historia aktywności
    */
   getActivityHistory: (params = {}) => {
     return apiClient.get('/v1/users/me/activity', { params });
   },
 
   /**
-   * Pobiera ulubione gatunki użytkownika (z interakcji)
+   * Ulubione gatunki
    */
   getFavoriteGenres: () => {
     return apiClient.get('/v1/users/me/favorite-genres');

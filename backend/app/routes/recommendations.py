@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-from datetime import datetime
+from typing import Optional, List
+from datetime import datetime, timedelta
 from bson import ObjectId
 import random
 import json
@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi import Request
 from sse_starlette.sse import EventSourceResponse
 import logging
+from collections import defaultdict, Counter
+import numpy as np
 
 # Import rozszerzonego serwisu (z incremental learning)
 import recommendation_engine.goodbooks_lightgcn_service as service_module
@@ -145,6 +147,129 @@ async def enrich_recommendations_with_metadata(goodbooks_ids: list, db, limit: i
     return enriched
 
 
+# 🆕 NOWE HELPER FUNCTIONS dla Advanced Discovery
+
+
+async def get_user_top_genres(db, user_id: str, limit: int = 3) -> List[dict]:
+    """Analizuje preferencje gatunkowe użytkownika"""
+    interactions = await db.interactions.find(
+        {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review", "view"]}}
+    ).to_list(length=None)
+
+    if not interactions:
+        # Fallback: popularne gatunki
+        popular_genres = await db.books.aggregate(
+            [
+                {"$unwind": "$genres"},
+                {"$group": {"_id": "$genres", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": limit},
+            ]
+        ).to_list(length=None)
+
+        return [{"genre": g["_id"], "score": 1.0 - (i * 0.1)} for i, g in enumerate(popular_genres)]
+
+    # ✅ FIX: Konwertuj book_id (string) na ObjectId
+    book_ids = [
+        ObjectId(i["book_id"]) if isinstance(i["book_id"], str) else i["book_id"]
+        for i in interactions
+    ]
+    books = await db.books.find({"_id": {"$in": book_ids}}).to_list(length=None)
+
+    genre_weights = defaultdict(float)
+    interaction_weights = {"borrow": 1.0, "review": 0.8, "view": 0.3}
+
+    for interaction in interactions:
+        # ✅ FIX: Konwertuj dla porównania
+        book_id_obj = (
+            ObjectId(interaction["book_id"])
+            if isinstance(interaction["book_id"], str)
+            else interaction["book_id"]
+        )
+        book = next((b for b in books if b["_id"] == book_id_obj), None)
+        if not book or "genres" not in book:
+            continue
+
+        weight = interaction_weights.get(interaction["interaction_type"], 0.5)
+        for genre in book.get("genres", []):
+            genre_weights[genre] += weight
+
+    # Normalizuj
+    max_weight = max(genre_weights.values()) if genre_weights else 1.0
+    genre_scores = [
+        {"genre": genre, "score": weight / max_weight} for genre, weight in genre_weights.items()
+    ]
+    genre_scores.sort(key=lambda x: x["score"], reverse=True)
+
+    return genre_scores[:limit]
+
+
+async def get_user_favorite_authors(db, user_id: str, limit: int = 3) -> List[dict]:
+    """Znajduje ulubionych autorów użytkownika"""
+    interactions = await db.interactions.find(
+        {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
+    ).to_list(length=None)
+
+    if not interactions:
+        return []
+
+    # ✅ FIX: Konwertuj book_id (string) na ObjectId
+    book_ids = [
+        ObjectId(i["book_id"]) if isinstance(i["book_id"], str) else i["book_id"]
+        for i in interactions
+    ]
+    books = await db.books.find({"_id": {"$in": book_ids}}).to_list(length=None)
+
+    author_weights = defaultdict(float)
+    interaction_weights = {"borrow": 1.0, "review": 0.8}
+
+    for interaction in interactions:
+        # ✅ FIX: Konwertuj dla porównania
+        book_id_obj = (
+            ObjectId(interaction["book_id"])
+            if isinstance(interaction["book_id"], str)
+            else interaction["book_id"]
+        )
+        book = next((b for b in books if b["_id"] == book_id_obj), None)
+        if not book or "author" not in book:
+            continue
+
+        weight = interaction_weights.get(interaction["interaction_type"], 0.5)
+        author_weights[book["author"]] += weight
+
+    max_weight = max(author_weights.values()) if author_weights else 1.0
+    author_scores = [
+        {"author": author, "score": weight / max_weight}
+        for author, weight in author_weights.items()
+    ]
+    author_scores.sort(key=lambda x: x["score"], reverse=True)
+
+    return author_scores[:limit]
+
+
+def calculate_content_similarity(book: dict, user_profile: dict) -> float:
+    """Oblicza podobieństwo content-based"""
+    score = 0.0
+
+    # Genre match (60%)
+    if "genres" in book and user_profile.get("favorite_genres"):
+        user_genres = {g["genre"] for g in user_profile["favorite_genres"]}
+        book_genres = set(book.get("genres", []))
+
+        if user_genres and book_genres:
+            overlap = len(user_genres & book_genres)
+            genre_score = overlap / len(user_genres)
+            score += genre_score * 0.6
+
+    # Author familiarity (40%)
+    if "author" in book and user_profile.get("favorite_authors"):
+        user_authors = {a["author"] for a in user_profile["favorite_authors"]}
+        if book["author"] in user_authors:
+            score += 0.4
+
+    return min(score, 1.0)
+
+
 class InteractionIn(BaseModel):
     book_id: str
     interaction_type: Literal["view", "review", "borrow"]
@@ -168,7 +293,7 @@ async def health_check():
             "incremental_mode": stats.get("incremental_mode", True),
             "total_users": stats["total_users"],
             "total_updates": stats["total_updates"],
-            "mmr_available": MMR_AVAILABLE,  # ✅ DODAJ
+            "mmr_available": MMR_AVAILABLE,
             "timestamp": datetime.now().isoformat(),
         }
     except HTTPException as e:
@@ -251,13 +376,13 @@ async def get_metrics():
         "layers": base_metrics.get("layers", 3),
         # Incremental stats
         **incremental_info,
-        # ✅ DODAJ - MMR info
+        # MMR info
         "mmrAvailable": MMR_AVAILABLE,
     }
 
 
 # ==========================================================
-#  POZOSTAŁE ENDPOINTY (bez zmian)
+#  POZOSTAŁE ENDPOINTY (istniejące - bez zmian)
 # ==========================================================
 
 
@@ -270,8 +395,9 @@ async def get_featured(
 
     favorite_genres = []
 
+    # ✅ FIX: user_id jako string
     pipeline = [
-        {"$match": {"user_id": ObjectId(user_id)}},
+        {"$match": {"user_id": user_id}},
         {
             "$lookup": {
                 "from": "books",
@@ -393,12 +519,18 @@ async def get_because_borrowed(
     db = get_database()
     user_id = str(current_user.id)
 
-    loans = db.loans.find({"user_id": ObjectId(user_id)}).sort("borrowed_at", -1).limit(limit)
+    # ✅ FIX: user_id jako string + tylko aktywne wypożyczenia
+    loans = (
+        db.loans.find({"user_id": user_id, "status": "active"}).sort("borrowed_at", -1).limit(limit)
+    )
 
     sections = []
 
     async for loan in loans:
-        raw = await db.books.find_one({"_id": loan["book_id"]})
+        # ✅ FIX: Konwertuj book_id z string na ObjectId
+        book_id = ObjectId(loan["book_id"]) if isinstance(loan["book_id"], str) else loan["book_id"]
+
+        raw = await db.books.find_one({"_id": book_id})
         if not raw:
             continue
 
@@ -406,7 +538,8 @@ async def get_because_borrowed(
         genres = source["genres"]
         author = source.get("author")
 
-        similar_query = {"_id": {"$ne": loan["book_id"]}, "$or": []}
+        # ✅ FIX: Użyj ObjectId w query
+        similar_query = {"_id": {"$ne": book_id}, "$or": []}
 
         if genres:
             similar_query["$or"].append({"genres": {"$in": genres}})
@@ -451,7 +584,11 @@ async def get_discovery_queue(
     db = get_database()
     user_id = str(current_user.id)
 
-    borrowed = [loan["book_id"] async for loan in db.loans.find({"user_id": ObjectId(user_id)})]
+    # ✅ FIX: Konwertuj book_id na ObjectId
+    borrowed = [
+        ObjectId(loan["book_id"]) if isinstance(loan["book_id"], str) else loan["book_id"]
+        async for loan in db.loans.find({"user_id": user_id})
+    ]
 
     query = {"_id": {"$nin": borrowed}} if borrowed else {}
 
@@ -471,8 +608,9 @@ async def get_known_authors(
     db = get_database()
     user_id = str(current_user.id)
 
+    # ✅ FIX: user_id jako string
     pipeline = [
-        {"$match": {"user_id": ObjectId(user_id)}},
+        {"$match": {"user_id": user_id}},
         {
             "$lookup": {
                 "from": "books",
@@ -600,7 +738,7 @@ async def report_interaction(
 
 
 # ==========================================================
-#  🎯 GŁÓWNY ENDPOINT Z MMR - ZMODYFIKOWANY!
+#  🎯 GŁÓWNY ENDPOINT Z MMR
 # ==========================================================
 
 
@@ -633,23 +771,23 @@ async def get_user_lightgcn_recommendations(
     if not user_id:
         raise HTTPException(status_code=400, detail="Brak poprawnego użytkownika")
 
-    try:
-        uid = ObjectId(str(user_id))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Nieprawidłowe ID użytkownika")
+    # user_id jako string dla MongoDB queries (loans używa string)
+    user_id_str = str(user_id)
 
     # 1. Zbierz wypożyczone książki
     borrowed_goodbooks_ids = set()
     borrowed_mongo_ids = set()
 
-    async for loan in db.loans.find({"user_id": uid, "status": "active"}):
+    async for loan in db.loans.find({"user_id": user_id_str, "status": "active"}):
         book_id = loan.get("book_id")
         if not book_id:
             continue
 
         borrowed_mongo_ids.add(str(book_id))
 
-        book = await db.books.find_one({"_id": book_id})
+        # ✅ FIX: Konwertuj book_id na ObjectId
+        book_id_obj = ObjectId(book_id) if isinstance(book_id, str) else book_id
+        book = await db.books.find_one({"_id": book_id_obj})
         if not book:
             continue
 
@@ -661,7 +799,7 @@ async def get_user_lightgcn_recommendations(
                 continue
 
     logger.info(
-        f"📊 User {uid} has {len(borrowed_goodbooks_ids)} borrowed books "
+        f"📊 User {user_id_str} has {len(borrowed_goodbooks_ids)} borrowed books "
         f"(use_mmr={use_mmr}, λ={lambda_param})"
     )
 
@@ -671,7 +809,7 @@ async def get_user_lightgcn_recommendations(
         fetch_n = limit * 3 if use_mmr else limit
 
         rec_goodbooks_ids = get_service().get_recommendations_for_user(
-            mongo_user_id=str(uid),
+            mongo_user_id=user_id_str,
             n=fetch_n,
             exclude_goodbooks_ids=borrowed_goodbooks_ids,
             use_cache=False,  # Świeże dane
@@ -771,13 +909,486 @@ async def get_user_lightgcn_recommendations(
         results = candidates[:limit]
         metadata = {"model": "LightGCN", "mmr_enabled": False, "returned": len(results)}
 
-    logger.info(f"✅ Returning {len(results)} recommendations for user {uid}")
+    logger.info(f"✅ Returning {len(results)} recommendations for user {id}")
 
     # 5. Zwróć wyniki + metadata
     return {"recommendations": results, "metadata": metadata}
 
 
-# ✅ DODAJ - Endpoint porównania λ
+# ==========================================================
+#  🆕 NOWE ENDPOINTY - ADVANCED DISCOVERY
+# ==========================================================
+
+
+@router.get("/by-genre")
+async def get_genre_recommendations(
+    limit: int = Query(3, ge=1, le=5, description="Liczba gatunków"),
+    books_per_genre: int = Query(10, ge=5, le=20, description="Książek na gatunek"),
+    current_user=Depends(get_current_user),
+):
+    """SEKCJA B: Rekomendacje według gatunku"""
+    db = get_database()
+    user_id = str(current_user.id)
+
+    # Znajdź top gatunki
+    top_genres = await get_user_top_genres(db, user_id, limit)
+
+    if not top_genres:
+        return []
+
+    # Pobierz embedding użytkownika
+    try:
+        lightgcn = get_service()
+        user_idx = lightgcn.mongo_user_to_idx.get(user_id)
+        user_embedding = lightgcn.user_emb[user_idx] if user_idx is not None else None
+    except:
+        user_embedding = None
+
+    sections = []
+    for genre_info in top_genres:
+        genre = genre_info["genre"]
+
+        # ✅ FIX: Pole w MongoDB to "genre" nie "genres"!
+        # Obsługa zarówno genre: "Fantasy" jak i genre: ["Fantasy", "Young Adult"]
+        genre_books = await db.books.find(
+            {
+                "$or": [
+                    {"genre": genre},  # genre jako string
+                    {"genres": genre},  # fallback dla genres (na wszelki wypadek)
+                ],
+                "available_copies": {"$gt": 0},
+            }
+        ).to_list(length=100)
+
+        if not genre_books:
+            continue
+
+        # Personalizuj ranking
+        scored_books = []
+        for book in genre_books:
+            book_data = normalize_book(serialize_doc(book))
+
+            # Spróbuj użyć LightGCN
+            if user_embedding is not None:
+                try:
+                    gb_id = book.get("goodbooks_book_id")
+                    book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+
+                    if book_idx is not None:
+                        book_embedding = lightgcn.item_emb[book_idx]
+                        score = np.dot(user_embedding, book_embedding) / (
+                            np.linalg.norm(user_embedding) * np.linalg.norm(book_embedding)
+                        )
+                        book_data["matchScore"] = float(score)
+                    else:
+                        book_data["matchScore"] = 0.5
+                except:
+                    book_data["matchScore"] = 0.5
+            else:
+                book_data["matchScore"] = 0.5
+
+            scored_books.append(book_data)
+
+        # Sortuj i zwróć top N
+        scored_books.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
+
+        sections.append(
+            {
+                "genre": genre,
+                "books": scored_books[:books_per_genre],
+                "user_preference_score": genre_info["score"],
+            }
+        )
+
+    return sections
+
+
+@router.get("/by-author")
+async def get_author_recommendations(
+    limit: int = Query(3, ge=1, le=5),
+    books_per_author: int = Query(10, ge=5, le=20),
+    current_user=Depends(get_current_user),
+):
+    """SEKCJA B: Rekomendacje według autora"""
+    db = get_database()
+    user_id = str(current_user.id)
+
+    # Znajdź ulubionych autorów
+    favorite_authors = await get_user_favorite_authors(db, user_id, limit)
+
+    if not favorite_authors:
+        return []
+
+    # Pobierz embedding użytkownika
+    try:
+        lightgcn = get_service()
+        user_idx = lightgcn.mongo_user_to_idx.get(user_id)
+        user_embedding = lightgcn.user_emb[user_idx] if user_idx is not None else None
+    except:
+        user_embedding = None
+
+    # Pobierz już wypożyczone książki
+    user_borrows = await db.interactions.find(
+        {"user_id": user_id, "interaction_type": "borrow"}
+    ).to_list(length=None)
+    borrowed_book_ids = {i["book_id"] for i in user_borrows}
+
+    sections = []
+    for author_info in favorite_authors:
+        author = author_info["author"]
+
+        # Pobierz książki autora
+        author_books = await db.books.find(
+            {
+                "author": author,
+                "_id": {"$nin": list(borrowed_book_ids)},
+                "available_copies": {"$gt": 0},
+            }
+        ).to_list(length=50)
+
+        if not author_books:
+            continue
+
+        # Personalizuj
+        scored_books = []
+        for book in author_books:
+            book_data = normalize_book(serialize_doc(book))
+
+            if user_embedding is not None:
+                try:
+                    gb_id = book.get("goodbooks_book_id")
+                    book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+
+                    if book_idx is not None:
+                        book_embedding = lightgcn.item_emb[book_idx]
+                        score = np.dot(user_embedding, book_embedding) / (
+                            np.linalg.norm(user_embedding) * np.linalg.norm(book_embedding)
+                        )
+                        book_data["matchScore"] = float(score)
+                    else:
+                        book_data["matchScore"] = 0.5
+                except:
+                    book_data["matchScore"] = 0.5
+            else:
+                book_data["matchScore"] = 0.5
+
+            scored_books.append(book_data)
+
+        scored_books.sort(key=lambda x: x.get("matchScore", 0), reverse=True)
+
+        sections.append(
+            {
+                "author": author,
+                "books": scored_books[:books_per_author],
+                "user_preference_score": author_info["score"],
+            }
+        )
+
+    return sections
+
+
+@router.get("/similar-readers")
+async def get_similar_readers_books(
+    limit: int = Query(15, ge=5, le=30),
+    current_user=Depends(get_current_user),
+):
+    """SEKCJA B: Książki popularne wśród podobnych czytelników"""
+    db = get_database()
+    user_id = str(current_user.id)
+
+    try:
+        lightgcn = get_service()
+        user_idx = lightgcn.mongo_user_to_idx.get(user_id)
+
+        if user_idx is None:
+            return {"books": [], "similar_user_count": 0}
+
+        user_embedding = lightgcn.user_emb[user_idx]
+    except:
+        return {"books": [], "similar_user_count": 0}
+
+    # Znajdź podobnych użytkowników
+    all_users = await db.users.find({"_id": {"$ne": ObjectId(user_id)}}).to_list(length=None)
+
+    similar_users = []
+    for user in all_users:
+        other_id = str(user["_id"])
+        other_idx = lightgcn.mongo_user_to_idx.get(other_id)
+
+        if other_idx is not None:
+            other_embedding = lightgcn.user_emb[other_idx]
+            similarity = np.dot(user_embedding, other_embedding) / (
+                np.linalg.norm(user_embedding) * np.linalg.norm(other_embedding)
+            )
+
+            if similarity > 0.7:
+                similar_users.append({"user_id": other_id, "similarity": float(similarity)})
+
+    similar_users.sort(key=lambda x: x["similarity"], reverse=True)
+    top_similar = similar_users[:50]
+
+    if not top_similar:
+        return {"books": [], "similar_user_count": 0}
+
+    # Pobierz książki które oni wypożyczyli
+    similar_user_ids = [u["user_id"] for u in top_similar]
+
+    similar_borrows = await db.interactions.find(
+        {"user_id": {"$in": similar_user_ids}, "interaction_type": "borrow"}
+    ).to_list(length=None)
+
+    # Zlicz popularność
+    book_popularity = Counter([b["book_id"] for b in similar_borrows])
+
+    # Wyklucz już wypożyczone
+    user_borrows = await db.interactions.find(
+        {"user_id": user_id, "interaction_type": "borrow"}
+    ).to_list(length=None)
+    borrowed_book_ids = {i["book_id"] for i in user_borrows}
+
+    # Filtruj
+    ranked_books = [
+        (book_id, count)
+        for book_id, count in book_popularity.most_common()
+        if book_id not in borrowed_book_ids
+    ][:limit]
+
+    # Pobierz szczegóły
+    book_ids = [book_id for book_id, _ in ranked_books]
+
+    # ✅ FIX: Konwertuj book_ids (string) na ObjectId
+    book_ids_obj = [ObjectId(bid) if isinstance(bid, str) else bid for bid in book_ids]
+    books = await db.books.find({"_id": {"$in": book_ids_obj}}).to_list(length=None)
+
+    book_dict = {str(b["_id"]): normalize_book(serialize_doc(b)) for b in books}
+    max_count = ranked_books[0][1] if ranked_books else 1
+
+    result_books = []
+    for book_id, count in ranked_books:
+        book_id_str = str(book_id)
+        if book_id_str in book_dict:
+            book = book_dict[book_id_str]
+            book["popularityScore"] = count / max_count
+
+            # Dodaj matchScore z LightGCN
+            try:
+                gb_id = book.get("goodbooks_book_id")
+                book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+
+                if book_idx is not None:
+                    book_embedding = lightgcn.item_emb[book_idx]
+                    score = np.dot(user_embedding, book_embedding) / (
+                        np.linalg.norm(user_embedding) * np.linalg.norm(book_embedding)
+                    )
+                    book["matchScore"] = float(score)
+            except:
+                pass
+
+            result_books.append(book)
+
+    return {
+        "books": result_books,
+        "similar_user_count": len(top_similar),
+        "metadata": {"similarity_threshold": 0.7},
+    }
+
+
+@router.get("/new-arrivals")
+async def get_new_arrivals(
+    limit: int = Query(20, ge=5, le=50),
+    days: int = Query(30, ge=7, le=90),
+    current_user=Depends(get_current_user),
+):
+    """SEKCJA C: Nowości w bibliotece"""
+    db = get_database()
+    user_id = str(current_user.id)
+
+    cutoff_date = datetime.now() - timedelta(days=days)
+
+    # Spróbuj znaleźć nowe książki
+    new_books = await db.books.find({"created_at": {"$gte": cutoff_date}}).to_list(length=100)
+
+    # Fallback: ostatnio dodane (po _id)
+    if not new_books:
+        new_books = await db.books.find().sort("_id", -1).limit(limit).to_list(length=None)
+
+    # Profil użytkownika
+    user_profile = {
+        "favorite_genres": await get_user_top_genres(db, user_id, limit=5),
+        "favorite_authors": await get_user_favorite_authors(db, user_id, limit=5),
+    }
+
+    # Oblicz similarity
+    scored_books = []
+    for book in new_books:
+        book_data = normalize_book(serialize_doc(book))
+        score = calculate_content_similarity(book_data, user_profile)
+        book_data["matchScore"] = score
+        book_data["coldStart"] = True
+        book_data["similarityMethod"] = "content-based"
+        scored_books.append(book_data)
+
+    scored_books.sort(key=lambda x: x["matchScore"], reverse=True)
+    return scored_books[:limit]
+
+
+@router.get("/hidden-gems")
+async def get_hidden_gems(
+    limit: int = Query(15, ge=5, le=30),
+    current_user=Depends(get_current_user),
+):
+    """SEKCJA C: Ukryte skarby 💎"""
+    db = get_database()
+    user_id = str(current_user.id)
+
+    # Ulubione gatunki
+    user_genres = await get_user_top_genres(db, user_id, limit=5)
+    favorite_genres = [g["genre"] for g in user_genres]
+
+    # Zlicz wypożyczenia
+    borrow_counts = await db.interactions.aggregate(
+        [
+            {"$match": {"interaction_type": "borrow"}},
+            {"$group": {"_id": "$book_id", "borrow_count": {"$sum": 1}}},
+            {"$match": {"borrow_count": {"$lt": 50}}},
+        ]
+    ).to_list(length=None)
+
+    underrated_book_ids = [ObjectId(b["_id"]) for b in borrow_counts]
+
+    # Znajdź wysoko oceniane
+    query = {
+        "_id": {"$in": underrated_book_ids},
+        "average_rating": {"$gte": 4.0},
+        "available_copies": {"$gt": 0},
+    }
+
+    if favorite_genres:
+        query["genres"] = {"$in": favorite_genres}
+
+    hidden_gems = await db.books.find(query).to_list(length=100)
+
+    if not hidden_gems:
+        # Fallback
+        hidden_gems = (
+            await db.books.find({"average_rating": {"$gte": 4.0}, "available_copies": {"$gt": 0}})
+            .limit(50)
+            .to_list(length=None)
+        )
+
+    # Personalizuj
+    user_profile = {
+        "favorite_genres": user_genres,
+        "favorite_authors": await get_user_favorite_authors(db, user_id, limit=5),
+    }
+
+    scored_gems = []
+    for book in hidden_gems:
+        book_data = normalize_book(serialize_doc(book))
+
+        borrow_info = next((b for b in borrow_counts if b["_id"] == book["_id"]), None)
+        book_data["borrow_count"] = borrow_info["borrow_count"] if borrow_info else 0
+
+        book_data["matchScore"] = calculate_content_similarity(book_data, user_profile)
+        book_data["hiddenGem"] = True
+
+        scored_gems.append(book_data)
+
+    scored_gems.sort(key=lambda x: (x["matchScore"], x.get("average_rating", 0)), reverse=True)
+
+    return scored_gems[:limit]
+
+
+@router.get("/highly-rated")
+async def get_highly_rated_discoveries(
+    limit: int = Query(15, ge=5, le=30),
+    min_rating: float = Query(4.5, ge=3.0, le=5.0),
+    current_user=Depends(get_current_user),
+):
+    """SEKCJA C: Wysoko oceniane odkrycia ⭐"""
+    db = get_database()
+    user_id = str(current_user.id)
+
+    # Ulubione gatunki
+    user_genres = await get_user_top_genres(db, user_id, limit=5)
+    favorite_genres = [g["genre"] for g in user_genres]
+
+    # Przeczytane książki
+    user_reads = await db.interactions.find(
+        {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
+    ).to_list(length=None)
+    read_book_ids = [ObjectId(i["book_id"]) for i in user_reads]
+
+    # Znajdź wysoko oceniane
+    query = {
+        "average_rating": {"$gte": min_rating},
+        "available_copies": {"$gt": 0},
+        "_id": {"$nin": read_book_ids},
+    }
+
+    if favorite_genres:
+        query["genres"] = {"$in": favorite_genres}
+
+    highly_rated = await db.books.find(query).limit(100).to_list(length=None)
+
+    if not highly_rated:
+        # Fallback
+        highly_rated = (
+            await db.books.find(
+                {"average_rating": {"$gte": min_rating}, "available_copies": {"$gt": 0}}
+            )
+            .limit(50)
+            .to_list(length=None)
+        )
+
+    # Personalizuj z LightGCN
+    try:
+        lightgcn = get_service()
+        user_idx = lightgcn.mongo_user_to_idx.get(user_id)
+        user_embedding = lightgcn.user_emb[user_idx] if user_idx is not None else None
+    except:
+        user_embedding = None
+
+    scored_books = []
+    for book in highly_rated:
+        book_data = normalize_book(serialize_doc(book))
+
+        # LightGCN score
+        if user_embedding is not None:
+            try:
+                gb_id = book.get("goodbooks_book_id")
+                book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+
+                if book_idx is not None:
+                    book_embedding = lightgcn.item_emb[book_idx]
+                    score = np.dot(user_embedding, book_embedding) / (
+                        np.linalg.norm(user_embedding) * np.linalg.norm(book_embedding)
+                    )
+                    book_data["matchScore"] = float(score)
+                else:
+                    book_data["matchScore"] = 0.5
+            except:
+                book_data["matchScore"] = 0.5
+        else:
+            book_data["matchScore"] = 0.5
+
+        book_data["highlyRated"] = True
+        scored_books.append(book_data)
+
+    # Hybrid: 70% matchScore + 30% rating
+    scored_books.sort(
+        key=lambda x: (x["matchScore"] * 0.7 + (x.get("average_rating", 0) / 5.0) * 0.3),
+        reverse=True,
+    )
+
+    return scored_books[:limit]
+
+
+# ==========================================================
+#  DIVERSITY COMPARISON
+# ==========================================================
+
+
 @router.get("/diversity-comparison")
 async def compare_diversity_metrics(
     n: int = Query(default=30, ge=10, le=50),
@@ -796,7 +1407,6 @@ async def compare_diversity_metrics(
 
     db = get_database()
     user_id = str(current_user.id)
-    uid = ObjectId(user_id)
 
     # Parse lambda values
     try:
@@ -806,8 +1416,14 @@ async def compare_diversity_metrics(
 
     # Zbierz wypożyczone
     borrowed_goodbooks_ids = set()
-    async for loan in db.loans.find({"user_id": uid, "status": "active"}):
-        book = await db.books.find_one({"_id": loan.get("book_id")})
+    async for loan in db.loans.find({"user_id": user_id, "status": "active"}):
+        # ✅ FIX: Konwertuj book_id na ObjectId
+        book_id = (
+            ObjectId(loan.get("book_id"))
+            if isinstance(loan.get("book_id"), str)
+            else loan.get("book_id")
+        )
+        book = await db.books.find_one({"_id": book_id})
         if book and book.get("goodbooks_book_id"):
             try:
                 borrowed_goodbooks_ids.add(int(book["goodbooks_book_id"]))
@@ -919,7 +1535,7 @@ async def get_service_stats(current_user=Depends(get_current_user)):
 
     try:
         stats = get_service().get_stats()
-        stats["mmr_available"] = MMR_AVAILABLE  # ✅ DODAJ
+        stats["mmr_available"] = MMR_AVAILABLE
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -939,8 +1555,40 @@ async def get_embedding_stats(
     try:
         service_stats = get_service().get_stats()
         stats["lightgcn_service"] = service_stats
-        stats["mmr_available"] = MMR_AVAILABLE  # ✅ DODAJ
+        stats["mmr_available"] = MMR_AVAILABLE
     except Exception as e:
         stats["lightgcn_service"] = {"error": str(e)}
 
     return stats
+
+
+# ==========================================================
+#  TEST ENDPOINT - wszystkie nowe endpointy
+# ==========================================================
+
+
+@router.get("/test-new-endpoints")
+async def test_new_endpoints(
+    current_user=Depends(get_current_user),
+):
+    """
+    Testowy endpoint sprawdzający czy wszystkie nowe endpointy działają
+    """
+    db = get_database()
+    results = {}
+
+    try:
+        results["by_genre"] = len(await get_genre_recommendations(1, 5, current_user))
+        results["by_author"] = len(await get_author_recommendations(1, 5, current_user))
+        results["similar_readers"] = len(
+            (await get_similar_readers_books(5, current_user))["books"]
+        )
+        results["new_arrivals"] = len(await get_new_arrivals(5, 30, current_user))
+        results["hidden_gems"] = len(await get_hidden_gems(5, current_user))
+        results["highly_rated"] = len(await get_highly_rated_discoveries(5, 4.5, current_user))
+        results["status"] = "✅ All endpoints working!"
+    except Exception as e:
+        results["status"] = f"❌ Error: {str(e)}"
+        results["error"] = str(e)
+
+    return results

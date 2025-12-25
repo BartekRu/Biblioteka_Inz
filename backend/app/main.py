@@ -1,6 +1,6 @@
 """
 main.py
-FastAPI application with InteractionService + LightGCN recommendations
+FastAPI application with InteractionService + LightGCN recommendations + NEW ENDPOINTS v2.0
 """
 
 from fastapi import FastAPI
@@ -13,6 +13,7 @@ from .database import connect_to_mongo, close_mongo_connection, get_database
 
 # Routes
 from .routes import auth, books, users, loans, reviews, recommendations, views
+
 
 # Recommendation service (twój istniejący LightGCN)
 from recommendation_engine.goodbooks_lightgcn_service import get_service
@@ -33,7 +34,7 @@ async def lifespan(app: FastAPI):
     2. Inicjalizacja serwisu rekomendacji LightGCN
     3. Przygotowanie InteractionService (automatycznie przez DI)
     """
-    logger.info("🚀 Starting FastAPI application...")
+    logger.info("🚀 Starting FastAPI application v2.0...")
 
     # 1. Połącz z MongoDB
     await connect_to_mongo()
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
         logger.warning("⚠️  Continuing without recommendations...")
 
     logger.info("✅ Application startup complete")
+    logger.info("📚 NEW: Hidden Gems & Highly Rated endpoints available!")
 
     yield
 
@@ -76,7 +78,7 @@ async def lifespan(app: FastAPI):
 # Aplikacja FastAPI
 app = FastAPI(
     title="Biblioteka_Inz API",
-    description="AI-powered library management system with LightGCN recommendations and InteractionService",
+    description="AI-powered library management system with LightGCN recommendations, InteractionService, and Advanced Discovery (Hidden Gems, Highly Rated)",
     version="2.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -95,13 +97,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rejestracja routerów (WSZYSTKIE!)
+# ============================================================================
+# Rejestracja routerów
+# ============================================================================
+
+# Core routes
 app.include_router(auth.router, prefix="/v1/auth", tags=["Authentication"])
 app.include_router(books.router, prefix="/v1/books", tags=["Books"])
 app.include_router(users.router, prefix="/v1/users", tags=["Users"])
 app.include_router(loans.router, prefix="/v1/loans", tags=["Loans"])
 app.include_router(reviews.router, prefix="/v1/reviews", tags=["Reviews"])
-app.include_router(views.router, prefix="/v1/views", tags=["Views"])  # ← Nowy router!
+app.include_router(views.router, prefix="/v1/views", tags=["Views"])
+
+# Recommendations routes
 app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["Recommendations"])
 
 
@@ -113,12 +121,24 @@ async def root():
         "version": "2.0.0",
         "features": [
             "InteractionService (view, borrow, review)",
-            "LightGCN recommendations",
+            "LightGCN recommendations with MMR",
             "Real-time embedding updates",
             "Loan history integration (borrow weight: 1.0)",
+            "🆕 Hidden Gems discovery (underrated books)",
+            "🆕 Highly Rated recommendations (quality guarantee)",
+            "🆕 Genre & Author personalization",
+            "🆕 Similar Readers collaborative filtering",
         ],
         "docs": "/docs",
         "redoc": "/redoc",
+        "new_endpoints": [
+            "/v1/recommendations/hidden-gems",
+            "/v1/recommendations/highly-rated",
+            "/v1/recommendations/by-genre",
+            "/v1/recommendations/by-author",
+            "/v1/recommendations/similar-readers",
+            "/v1/recommendations/new-arrivals",
+        ],
     }
 
 
@@ -145,6 +165,7 @@ async def health_check():
         "database": db_status,
         "recommendation_service": rec_service_status,
         "version": "2.0.0",
+        "new_features": ["hidden_gems", "highly_rated", "genre_recs", "author_recs"],
     }
 
 
@@ -176,6 +197,13 @@ async def get_stats():
         # Statystyki wypożyczeń
         active_loans = await db.loans.count_documents({"status": "borrowed"})
         stats["active_loans"] = active_loans
+
+        # 🆕 NEW: Statystyki dla nowych endpointów
+        stats["book_quality"] = {
+            "highly_rated": await db.books.count_documents({"average_rating": {"$gte": 4.5}}),
+            "hidden_gems": await db.books.count_documents({"average_rating": {"$gte": 4.0}}),
+            "total_rated": await db.books.count_documents({"average_rating": {"$gt": 0}}),
+        }
 
         return stats
 

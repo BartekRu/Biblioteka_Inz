@@ -14,6 +14,7 @@ class Loan(BaseModel):
     book_id: str  # ObjectId as string
     user_id: str  # ObjectId as string
     loan_date: datetime = Field(default_factory=datetime.utcnow)
+    
     due_date: datetime = Field(default_factory=lambda: datetime.utcnow() + timedelta(days=30))
     return_date: Optional[datetime] = None
     status: str = "active"  # active, returned, overdue
