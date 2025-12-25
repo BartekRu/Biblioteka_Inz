@@ -131,9 +131,7 @@ const BookDetails = () => {
       setBorrowing(true);
 
       console.log('⚡ PRZED create loan'); // ← DODANE
-      await loansAPI.create({
-        book_id: book._id,
-      });
+      await loansAPI.create(book._id);
       console.log('✅ Loan created'); // ← DODANE
 
       console.log('⚡ PRZED reportInteraction'); // ← DODANE
@@ -164,6 +162,7 @@ const BookDetails = () => {
   };
 
   // Dodaj recenzję
+  // Dodaj recenzję
   const handleSubmitReview = async (e) => {
     e.preventDefault();
 
@@ -183,15 +182,18 @@ const BookDetails = () => {
 
     try {
       setSubmittingReview(true);
-      const response = await reviewsAPI.create({
-        book_id: id,
-        rating: newReview.rating,
-        content: newReview.content,
-      });
+
+      // ✅ POPRAWKA: Upewnij się że wysyłamy prawidłowy format
+      const response = await reviewsAPI.create(
+        id, // book_id jako parametr
+        newReview.rating, // rating
+        newReview.content // content (może być pusty string)
+      );
 
       setReviews([response.data, ...reviews]);
       setNewReview({ rating: 0, content: '' });
-      invalidateRecommendations('book_borrowed');
+      invalidateRecommendations('book_reviewed');
+
       setSnackbar({
         open: true,
         message: 'Recenzja została dodana!',
@@ -203,16 +205,42 @@ const BookDetails = () => {
       setBook(bookResponse.data);
     } catch (err) {
       console.error('Error submitting review:', err);
+
+      // ✅ POPRAWKA: Prawidłowa obsługa błędów walidacji
+      let errorMessage = 'Nie udało się dodać recenzji';
+
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+
+        // Jeśli detail to array (błędy walidacji Pydantic)
+        if (Array.isArray(detail)) {
+          errorMessage = detail
+            .map((error) => {
+              const field = error.loc?.[1] || 'pole';
+              const msg = error.msg || 'błąd walidacji';
+              return `${field}: ${msg}`;
+            })
+            .join(', ');
+        }
+        // Jeśli detail to string
+        else if (typeof detail === 'string') {
+          errorMessage = detail;
+        }
+        // Jeśli detail to obiekt
+        else {
+          errorMessage = JSON.stringify(detail);
+        }
+      }
+
       setSnackbar({
         open: true,
-        message: err.response?.data?.detail || 'Nie udało się dodać recenzji',
+        message: errorMessage,
         severity: 'error',
       });
     } finally {
       setSubmittingReview(false);
     }
   };
-
   // Usuń recenzję
   const handleDeleteReview = async (reviewId) => {
     try {

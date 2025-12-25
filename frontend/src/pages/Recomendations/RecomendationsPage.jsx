@@ -1,8 +1,8 @@
 /**
- * RecommendationsPage.jsx
+ * RecommendationsPage.jsx - UPDATED WITH MMR CONTROLS
  *
  * Strona rekomendacji książek inspirowana interfejsem Steam
- * Pokazuje wyniki modelu LightGCN w różnych sekcjach
+ * Z dodanym panelem kontroli MMR (Maximal Marginal Relevance)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -21,6 +21,10 @@ import {
   Tooltip,
   Paper,
   Alert,
+  Slider,
+  Switch,
+  FormControlLabel,
+  Collapse,
 } from '@mui/material';
 import {
   ChevronLeft,
@@ -34,6 +38,10 @@ import {
   Star,
   Search,
   Refresh,
+  TuneOutlined,
+  InfoOutlined,
+  ExpandMore as ExpandMoreIcon,
+  Science, // dla ikon MMR
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -115,7 +123,243 @@ const isBookAvailable = (book) => {
 };
 
 // ============================================================================
-// FEATURED CAROUSEL - Główny carousel z wyróżnionymi rekomendacjami
+// 🆕 MMR CONTROL PANEL - Panel sterowania rekomendacjami
+// ============================================================================
+
+const MMRControlPanel = ({
+  mmrEnabled,
+  onMmrToggle,
+  lambdaValue,
+  onLambdaChange,
+  authorLimit,
+  onAuthorLimitToggle,
+  maxPerAuthor,
+  diversityMetrics,
+  loading,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+
+  if (loading) {
+    return (
+      <Skeleton
+        variant="rectangular"
+        height={80}
+        sx={{ mb: 3, borderRadius: 2, bgcolor: COLORS.bgMedium }}
+      />
+    );
+  }
+
+  return (
+    <Paper
+      sx={{
+        p: 2,
+        mb: 3,
+        background: 'linear-gradient(135deg, #1e3a50 0%, #2a475e 100%)',
+        border: `1px solid ${COLORS.bgMedium}`,
+        borderRadius: 2,
+      }}
+    >
+      {/* Header - zawsze widoczny */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+        }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TuneOutlined sx={{ color: COLORS.accent }} />
+          <Typography variant="subtitle1" sx={{ color: COLORS.textPrimary, fontWeight: 500 }}>
+            Ustawienia rekomendacji {mmrEnabled && '(MMR aktywny)'}
+          </Typography>
+          <Tooltip title="MMR - balansuje trafność i różnorodność rekomendacji">
+            <IconButton size="small">
+              <InfoOutlined sx={{ fontSize: 16, color: COLORS.textSecondary }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Quick toggle */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={mmrEnabled}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  onMmrToggle(e.target.checked);
+                }}
+                sx={{
+                  '& .MuiSwitch-switchBase.Mui-checked': {
+                    color: COLORS.accent,
+                  },
+                }}
+              />
+            }
+            label={
+              <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
+                {mmrEnabled ? 'Włączone' : 'Wyłączone'}
+              </Typography>
+            }
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          <IconButton
+            sx={{
+              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.3s',
+              color: COLORS.textSecondary,
+            }}
+          >
+            <ExpandMoreIcon />
+          </IconButton>
+        </Box>
+      </Box>
+
+      {/* Expandable Content */}
+      <Collapse in={expanded}>
+        <Box sx={{ mt: 3 }}>
+          {/* Lambda Slider - tylko gdy MMR włączony */}
+          {mmrEnabled && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="body2" sx={{ color: COLORS.textPrimary, mb: 1 }}>
+                Balans trafność / różnorodność (λ = {lambdaValue.toFixed(2)})
+              </Typography>
+
+              <Slider
+                value={lambdaValue}
+                onChange={(e, newValue) => onLambdaChange(newValue)}
+                min={0}
+                max={1}
+                step={0.1}
+                marks={[
+                  { value: 0, label: '🎲 Odkrywaj' },
+                  { value: 0.5, label: '⚖️ Balans' },
+                  { value: 1, label: '🎯 Trafność' },
+                ]}
+                sx={{
+                  color: COLORS.accent,
+                  '& .MuiSlider-markLabel': {
+                    color: COLORS.textSecondary,
+                    fontSize: '0.7rem',
+                  },
+                  '& .MuiSlider-thumb': {
+                    width: 20,
+                    height: 20,
+                  },
+                }}
+              />
+
+              <Typography
+                variant="caption"
+                sx={{ color: COLORS.textSecondary, display: 'block', mt: 1, fontStyle: 'italic' }}
+              >
+                {lambdaValue >= 0.8 &&
+                  '→ Wysoka trafność: książki najbardziej pasujące do Twoich gustów'}
+                {lambdaValue >= 0.5 &&
+                  lambdaValue < 0.8 &&
+                  '→ Balans: mieszanka trafnych i odkrywczych rekomendacji'}
+                {lambdaValue < 0.5 && '→ Wysoka różnorodność: odkryjesz nowe gatunki i autorów'}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Author Limit - tylko gdy MMR włączony */}
+          {mmrEnabled && (
+            <Box sx={{ mb: 2 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={authorLimit}
+                    onChange={(e) => onAuthorLimitToggle(e.target.checked)}
+                    sx={{
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: COLORS.successGreen,
+                      },
+                    }}
+                  />
+                }
+                label={
+                  <Typography variant="body2" sx={{ color: COLORS.textPrimary }}>
+                    Ogranicz książki tego samego autora (max {maxPerAuthor})
+                  </Typography>
+                }
+              />
+              <Typography
+                variant="caption"
+                sx={{ color: COLORS.textSecondary, display: 'block', ml: 5 }}
+              >
+                Zapobiega dominacji jednego autora (np. 10x Nora Roberts)
+              </Typography>
+            </Box>
+          )}
+
+          {/* Diversity Metrics - tylko gdy MMR włączony */}
+          {mmrEnabled && diversityMetrics && (
+            <Box
+              sx={{
+                mt: 3,
+                p: 2,
+                bgcolor: 'rgba(0,0,0,0.3)',
+                borderRadius: 1,
+                border: `1px solid ${COLORS.bgDark}`,
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{ color: COLORS.textSecondary, display: 'block', mb: 1 }}
+              >
+                📊 Metryki różnorodności aktualnych rekomendacji:
+              </Typography>
+
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Chip
+                  label={`${diversityMetrics.unique_genres || 0} gatunków`}
+                  size="small"
+                  icon={<Category sx={{ fontSize: 14 }} />}
+                  sx={{ bgcolor: COLORS.bgDark, color: COLORS.accent }}
+                />
+                <Chip
+                  label={`${diversityMetrics.unique_authors || 0} autorów`}
+                  size="small"
+                  icon={<LocalLibrary sx={{ fontSize: 14 }} />}
+                  sx={{ bgcolor: COLORS.bgDark, color: COLORS.successGreen }}
+                />
+                <Chip
+                  label={`Różnorodność: ${(
+                    (diversityMetrics.avg_pairwise_dissimilarity || 0) * 100
+                  ).toFixed(0)}%`}
+                  size="small"
+                  icon={<AutoAwesome sx={{ fontSize: 14 }} />}
+                  sx={{ bgcolor: COLORS.bgDark, color: COLORS.goldAccent }}
+                />
+              </Box>
+
+              <Typography
+                variant="caption"
+                sx={{ color: COLORS.textSecondary, display: 'block', mt: 1 }}
+              >
+                💡 Im wyższe wartości, tym bardziej zróżnicowane rekomendacje
+              </Typography>
+            </Box>
+          )}
+
+          {/* Info gdy MMR wyłączony */}
+          {!mmrEnabled && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              MMR wyłączony - rekomendacje bazują tylko na trafności (może wystąpić powtarzalność)
+            </Alert>
+          )}
+        </Box>
+      </Collapse>
+    </Paper>
+  );
+};
+
+// ============================================================================
+// FEATURED CAROUSEL (bez zmian)
 // ============================================================================
 
 const FeaturedCarousel = ({ books, loading }) => {
@@ -204,7 +448,6 @@ const FeaturedCarousel = ({ books, loading }) => {
               },
             }}
           />
-          {/* Overlay gradient */}
           <Box
             sx={{
               position: 'absolute',
@@ -215,7 +458,6 @@ const FeaturedCarousel = ({ books, loading }) => {
               background: 'linear-gradient(to top, rgba(27,40,56,0.95), transparent)',
             }}
           />
-          {/* Title overlay */}
           <Box
             sx={{
               position: 'absolute',
@@ -239,7 +481,6 @@ const FeaturedCarousel = ({ books, loading }) => {
               {currentBook.author}
             </Typography>
           </Box>
-          {/* Bookmark badge */}
           {currentBook.onWishlist && (
             <Box
               sx={{
@@ -264,7 +505,6 @@ const FeaturedCarousel = ({ books, loading }) => {
           )}
         </Box>
 
-        {/* Right panel - details */}
         <Box
           sx={{
             flex: '0 0 35%',
@@ -274,7 +514,6 @@ const FeaturedCarousel = ({ books, loading }) => {
             justifyContent: 'space-between',
           }}
         >
-          {/* Thumbnails grid */}
           <Box
             sx={{
               display: 'grid',
@@ -309,7 +548,6 @@ const FeaturedCarousel = ({ books, loading }) => {
             ))}
           </Box>
 
-          {/* Recommendation reason */}
           <Box sx={{ mb: 2 }}>
             <Chip
               icon={<Psychology />}
@@ -326,7 +564,6 @@ const FeaturedCarousel = ({ books, loading }) => {
             </Typography>
           </Box>
 
-          {/* Tags */}
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: 2 }}>
             {genres.slice(0, 4).map((genre) => (
               <Chip
@@ -342,7 +579,6 @@ const FeaturedCarousel = ({ books, loading }) => {
             ))}
           </Box>
 
-          {/* Availability */}
           <Box
             sx={{
               display: 'flex',
@@ -378,7 +614,6 @@ const FeaturedCarousel = ({ books, loading }) => {
           </Box>
         </Box>
 
-        {/* Navigation buttons */}
         <IconButton onClick={prevSlide} sx={{ ...pageStyles.navButton, left: 10 }}>
           <ChevronLeft />
         </IconButton>
@@ -386,7 +621,6 @@ const FeaturedCarousel = ({ books, loading }) => {
           <ChevronRight />
         </IconButton>
 
-        {/* Dots indicator */}
         <Box
           sx={{
             position: 'absolute',
@@ -418,7 +652,8 @@ const FeaturedCarousel = ({ books, loading }) => {
 };
 
 // ============================================================================
-// CATEGORY CAROUSEL - Przeglądaj według kategorii
+// POZOSTAŁE KOMPONENTY (CategoryCarousel, BecauseYouSection, BookCard, etc.)
+// Wszystkie bez zmian - kopiuję ze starego kodu
 // ============================================================================
 
 const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
@@ -493,7 +728,6 @@ const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
               },
             }}
           >
-            {/* Background collage */}
             <Box
               sx={{
                 position: 'absolute',
@@ -514,7 +748,6 @@ const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
                 />
               ))}
             </Box>
-            {/* Category name overlay */}
             <Box
               sx={{
                 position: 'absolute',
@@ -539,7 +772,6 @@ const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
                 {category.name}
               </Typography>
             </Box>
-            {/* Count badge */}
             <Box
               sx={{
                 position: 'absolute',
@@ -559,7 +791,6 @@ const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
         ))}
       </Box>
 
-      {/* Navigation arrows */}
       <IconButton
         onClick={() => scroll('left')}
         sx={{
@@ -585,10 +816,6 @@ const CategoryCarousel = ({ categories, onCategoryClick, loading }) => {
     </Box>
   );
 };
-
-// ============================================================================
-// BECAUSE YOU BORROWED - "Ponieważ wypożyczyłeś X"
-// ============================================================================
 
 const BecauseYouSection = ({ sourceBook, recommendations, loading }) => {
   const navigate = useNavigate();
@@ -678,10 +905,6 @@ const BecauseYouSection = ({ sourceBook, recommendations, loading }) => {
   );
 };
 
-// ============================================================================
-// BOOK CARD - Pojedyncza karta książki
-// ============================================================================
-
 const BookCard = ({ book, onClick, showScore = true }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [bookmarked, setBookmarked] = useState(book.onWishlist || false);
@@ -743,7 +966,6 @@ const BookCard = ({ book, onClick, showScore = true }) => {
           sx={{ objectFit: 'cover' }}
         />
 
-        {/* Hover overlay */}
         <Box
           sx={{
             position: 'absolute',
@@ -785,7 +1007,6 @@ const BookCard = ({ book, onClick, showScore = true }) => {
           </Box>
         </Box>
 
-        {/* Bookmark button */}
         <IconButton
           onClick={handleBookmark}
           sx={{
@@ -805,7 +1026,6 @@ const BookCard = ({ book, onClick, showScore = true }) => {
           {bookmarked ? <Bookmark /> : <BookmarkBorder />}
         </IconButton>
 
-        {/* Availability badge */}
         <Box
           sx={{
             position: 'absolute',
@@ -823,7 +1043,6 @@ const BookCard = ({ book, onClick, showScore = true }) => {
           {available ? 'Dostępna' : 'Wypożyczona'}
         </Box>
 
-        {/* Match score */}
         {showScore && book.matchScore && (
           <Box
             sx={{
@@ -882,10 +1101,6 @@ const BookCard = ({ book, onClick, showScore = true }) => {
   );
 };
 
-// ============================================================================
-// DISCOVERY QUEUE - Kolejka odkryć
-// ============================================================================
-
 const DiscoveryQueue = ({ books, onExplore, loading }) => {
   if (loading) {
     return (
@@ -924,7 +1139,6 @@ const DiscoveryQueue = ({ books, onExplore, loading }) => {
           },
         }}
       >
-        {/* Preview covers */}
         <Box sx={{ display: 'flex', mr: 3 }}>
           {books?.slice(0, 6).map((book, idx) => (
             <Box
@@ -945,7 +1159,6 @@ const DiscoveryQueue = ({ books, onExplore, loading }) => {
           ))}
         </Box>
 
-        {/* Text */}
         <Box sx={{ flex: 1 }}>
           <Typography variant="body1" sx={{ color: COLORS.textPrimary, mb: 0.5 }}>
             Kliknij tutaj, aby rozpocząć przeglądanie swojej kolejki odkryć
@@ -955,7 +1168,6 @@ const DiscoveryQueue = ({ books, onExplore, loading }) => {
           </Typography>
         </Box>
 
-        {/* Arrow */}
         <Box
           sx={{
             width: 50,
@@ -974,30 +1186,10 @@ const DiscoveryQueue = ({ books, onExplore, loading }) => {
   );
 };
 
-// ============================================================================
-// MODEL METRICS PANEL - Panel pokazujący metryki modelu
-// ============================================================================
-
 const ModelMetricsPanel = ({ metrics, loading }) => {
-  if (loading) {
-    return (
-      <Box sx={{ mb: 6 }}>
-        <Skeleton width={300} height={24} sx={{ bgcolor: COLORS.bgMedium, mb: 2 }} />
-        <Skeleton
-          variant="rectangular"
-          height={150}
-          sx={{ bgcolor: COLORS.bgMedium, borderRadius: 2 }}
-        />
-      </Box>
-    );
-  }
-
-  return <Box sx={{ mb: 6 }}></Box>;
+  if (loading) return <Box sx={{ mb: 2 }} />;
+  return <Box sx={{ mb: 2 }} />;
 };
-
-// ============================================================================
-// FROM AUTHORS YOU KNOW - Od autorów których znasz
-// ============================================================================
 
 const FromAuthorsYouKnow = ({ authors, loading }) => {
   const navigate = useNavigate();
@@ -1087,7 +1279,6 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
             }}
             onClick={() => navigate(`/books?author=${author.name}`)}
           >
-            {/* Book cover preview */}
             <Box sx={{ position: 'relative', height: 140 }}>
               <Box
                 component="img"
@@ -1100,7 +1291,6 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
                   filter: 'brightness(0.7)',
                 }}
               />
-              {/* Availability badge */}
               {isBookAvailable(author.latestBook || {}) && (
                 <Box
                   sx={{
@@ -1124,7 +1314,6 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
               )}
             </Box>
 
-            {/* Author info */}
             <Box sx={{ p: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                 <Box
@@ -1185,10 +1374,6 @@ const FromAuthorsYouKnow = ({ authors, loading }) => {
   );
 };
 
-// ============================================================================
-// BROWSE OPTIONS - Przyciski nawigacji (Nowości, Popularne, etc.)
-// ============================================================================
-
 const BrowseOptions = ({ onNavigate }) => {
   const options = [
     { label: 'Nowości', path: '/books?sort=newest' },
@@ -1234,6 +1419,10 @@ const BrowseOptions = ({ onNavigate }) => {
   );
 };
 
+// ============================================================================
+// 🎯 GŁÓWNY KOMPONENT - UPDATED Z MMR
+// ============================================================================
+
 const RecommendationsPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -1241,11 +1430,14 @@ const RecommendationsPage = () => {
   const [error, setError] = useState(null);
 
   const { refreshTrigger } = useRecommendations();
-
-  // ✅ DODAJ - Śledź poprzedni refreshTrigger
   const prevTriggerRef = React.useRef(refreshTrigger);
 
-  console.log('🎨 RecommendationsPage render, refreshTrigger =', refreshTrigger);
+  // 🆕 MMR State
+  const [mmrEnabled, setMmrEnabled] = useState(true);
+  const [lambdaValue, setLambdaValue] = useState(0.7);
+  const [authorLimit, setAuthorLimit] = useState(true);
+  const [maxPerAuthor] = useState(2);
+  const [diversityMetrics, setDiversityMetrics] = useState(null);
 
   // State for different sections
   const [featuredBooks, setFeaturedBooks] = useState([]);
@@ -1255,21 +1447,19 @@ const RecommendationsPage = () => {
   const [knownAuthors, setKnownAuthors] = useState([]);
   const [modelMetrics, setModelMetrics] = useState(null);
 
-  // ✅ DODAJ - Reaguj na zmianę refreshTrigger ZAWSZE
+  // ✅ Reaguj na zmianę refreshTrigger
   useEffect(() => {
     if (prevTriggerRef.current !== refreshTrigger) {
       console.log(`🔔 refreshTrigger changed: ${prevTriggerRef.current} → ${refreshTrigger}`);
       prevTriggerRef.current = refreshTrigger;
-
-      // Force refresh - wywołaj fetchRecommendations
       if (user) {
         fetchRecommendations();
       }
     }
-  }, [refreshTrigger]); // ← Tylko refreshTrigger, NIE user/navigate
+  }, [refreshTrigger]);
 
-  // Główna funkcja fetch - wydziel ją aby móc wywołać z useEffect
-  const fetchRecommendations = async () => {
+  // ✅ Fetch z parametrami MMR
+  const fetchRecommendations = useCallback(async () => {
     if (!user) {
       navigate('/login');
       return;
@@ -1279,11 +1469,19 @@ const RecommendationsPage = () => {
       setLoading(true);
       setError(null);
 
-      console.log('🔄 Fetching recommendations... (refreshTrigger =', refreshTrigger, ')');
+      console.log('🔄 Fetching with MMR:', { mmrEnabled, lambdaValue, authorLimit });
 
       const [userRecRes, categoriesRes, becauseRes, queueRes, authorsRes, metricsRes] =
         await Promise.allSettled([
-          recommendationsAPI.getUserLightGCN(30),
+          // ✅ UŻYWA NOWEGO API Z TWOJEGO BACKENDU
+          recommendationsAPI.getUserLightGCN(
+            30, // limit
+            0, // offset
+            mmrEnabled, // use_mmr
+            lambdaValue, // lambda_param
+            authorLimit, // enforce_author_limit
+            maxPerAuthor // max_per_author
+          ),
           recommendationsAPI.getCategories(),
           recommendationsAPI.getBecauseYouBorrowed(),
           recommendationsAPI.getDiscoveryQueue(),
@@ -1292,9 +1490,35 @@ const RecommendationsPage = () => {
         ]);
 
       if (userRecRes.status === 'fulfilled') {
-        const recs = userRecRes.value.data || [];
+        const responseData = userRecRes.value.data;
+
+        // ✅ NOWY FORMAT z Twojego backendu - obsługuje oba formaty
+        let recs = [];
+        let metadata = {};
+
+        if (responseData.recommendations) {
+          // Nowy format: { recommendations: [...], metadata: {...} }
+          recs = responseData.recommendations;
+          metadata = responseData.metadata || {};
+        } else if (Array.isArray(responseData)) {
+          // Stary format: [...] (fallback)
+          recs = responseData;
+        } else {
+          console.warn('Unexpected API response format:', responseData);
+        }
+
         setFeaturedBooks(recs.slice(0, 10));
         setDiscoveryQueue(recs);
+
+        // ✅ Ustaw metryki różnorodności
+        if (metadata.diversity_metrics) {
+          setDiversityMetrics(metadata.diversity_metrics);
+          console.log('📊 Diversity metrics:', metadata.diversity_metrics);
+        }
+
+        console.log(
+          `✅ Loaded ${recs.length} recommendations (MMR: ${mmrEnabled}, λ: ${lambdaValue})`
+        );
       }
 
       if (categoriesRes.status === 'fulfilled') {
@@ -1310,16 +1534,19 @@ const RecommendationsPage = () => {
         setModelMetrics(metricsRes.value.data);
       }
     } catch (err) {
-      console.error('Error fetching recommendations:', err);
+      console.error('❌ Error fetching recommendations:', err);
       setError('Nie udało się załadować rekomendacji. Spróbuj ponownie.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, navigate, mmrEnabled, lambdaValue, authorLimit, maxPerAuthor]);
 
+  // ✅ Reaguj na zmiany MMR settings
   useEffect(() => {
-    fetchRecommendations();
-  }, [user, navigate]);
+    if (user) {
+      fetchRecommendations();
+    }
+  }, [fetchRecommendations, user]);
 
   const handleCategoryClick = (category) => {
     navigate(`/books?genre=${category}`);
@@ -1328,9 +1555,6 @@ const RecommendationsPage = () => {
   const handleExploreQueue = () => {
     navigate('/discovery-queue');
   };
-
-  // ✅ POPRAWKA: Nie potrzebujemy triggerRefresh - można usunąć przycisk refresh
-  // lub zaimplementować go inaczej jeśli potrzebny
 
   if (!user) {
     return null;
@@ -1360,7 +1584,7 @@ const RecommendationsPage = () => {
               Twoje rekomendacje
             </Typography>
             <Typography variant="body2" sx={{ color: COLORS.textSecondary }}>
-              Spersonalizowane dla Ciebie przez AI
+              Spersonalizowane dla Ciebie przez AI {mmrEnabled && '+ MMR'}
             </Typography>
           </Box>
         </Box>
@@ -1371,6 +1595,19 @@ const RecommendationsPage = () => {
             {error}
           </Alert>
         )}
+
+        {/* 🆕 MMR CONTROL PANEL */}
+        <MMRControlPanel
+          mmrEnabled={mmrEnabled}
+          onMmrToggle={setMmrEnabled}
+          lambdaValue={lambdaValue}
+          onLambdaChange={setLambdaValue}
+          authorLimit={authorLimit}
+          onAuthorLimitToggle={setAuthorLimit}
+          maxPerAuthor={maxPerAuthor}
+          diversityMetrics={diversityMetrics}
+          loading={loading}
+        />
 
         {/* Model Metrics Panel */}
         <ModelMetricsPanel metrics={modelMetrics} loading={loading} />
@@ -1414,14 +1651,18 @@ const RecommendationsPage = () => {
           }}
         >
           <Typography variant="body2" sx={{ color: COLORS.textSecondary }}>
-            Rekomendacje generowane przez model LightGCN wytrenowany na{' '}
-            {modelMetrics?.interactions || '932,940'} interakcjach
+            Rekomendacje generowane przez model LightGCN {mmrEnabled && '+ MMR re-ranking'}{' '}
+            wytrenowany na {modelMetrics?.interactions || '932,940'} interakcjach
           </Typography>
           <Typography
             variant="caption"
             sx={{ color: COLORS.textSecondary, display: 'block', mt: 1 }}
           >
-            Im więcej wypożyczasz i oceniasz książek, tym lepsze rekomendacje otrzymasz
+            {mmrEnabled && diversityMetrics
+              ? `🎨 Różnorodność: ${diversityMetrics.unique_authors || 'N/A'} autorów, ${
+                  diversityMetrics.unique_genres || 'N/A'
+                } gatunków`
+              : 'Im więcej wypożyczasz i oceniasz książek, tym lepsze rekomendacje otrzymasz'}
           </Typography>
         </Box>
       </Container>

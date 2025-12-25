@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 
 from app.routes.recommendations import normalize_book, serialize_doc
-import logging  # ← DODANE
+import logging
 from collections import Counter
 
 logger = logging.getLogger(__name__)
@@ -90,15 +90,73 @@ class RecommendedBook(BaseModel):
     match_reason: Optional[str] = None
 
 
+async def get_user_interaction_preferences(db, user_id_oid, user_id_str):
+    """
+    📊 Pobiera TOP gatunki i autorów z FAKTYCZNYCH interakcji użytkownika
+    (wypożyczenia mają wagę 2, recenzje wagę 1)
+    """
+    genre_counter = Counter()
+    author_counter = Counter()
+
+    # 1. Wypożyczenia - waga 2
+    async for loan in db.loans.find({"$or": [{"user_id": user_id_oid}, {"user_id": user_id_str}]}):
+        book_id = normalize_object_id(loan.get("book_id"))
+        book = await db.books.find_one({"_id": book_id}) if book_id else None
+
+        if book:
+            genres = book.get("genre", [])
+            if isinstance(genres, str):
+                genres = [genres]
+            for genre in genres:
+                if genre:
+                    genre_counter[genre] += 2
+
+            authors = book.get("authors") or book.get("author") or []
+            if isinstance(authors, str):
+                authors = [authors]
+            for author in authors:
+                if author:
+                    author_counter[author] += 2
+
+    # 2. Recenzje - waga 1
+    async for review in db.reviews.find(
+        {"$or": [{"user_id": user_id_oid}, {"user_id": user_id_str}]}
+    ):
+        book_id = normalize_object_id(review.get("book_id"))
+        book = await db.books.find_one({"_id": book_id}) if book_id else None
+
+        if book:
+            genres = book.get("genre", [])
+            if isinstance(genres, str):
+                genres = [genres]
+            for genre in genres:
+                if genre:
+                    genre_counter[genre] += 1
+
+            authors = book.get("authors") or book.get("author") or []
+            if isinstance(authors, str):
+                authors = [authors]
+            for author in authors:
+                if author:
+                    author_counter[author] += 1
+
+    # Zwróć TOP 5 gatunków i autorów
+    top_genres = [genre for genre, _ in genre_counter.most_common(5)]
+    top_authors = [author for author, _ in author_counter.most_common(5)]
+
+    return top_genres, top_authors
+
+
 @router.get("/me/recommendations")
 async def get_user_recommendations(
     n: int = Query(default=10, le=30),
-    offset: int = Query(default=0, ge=0),  # ← DODANE - dla rotacji
-    randomize: bool = Query(default=False),  # ← DODANE - opcjonalna randomizacja
+    offset: int = Query(default=0, ge=0),
+    randomize: bool = Query(default=False),
     current_user=Depends(get_current_user),
 ):
     """
-    Rekomendacje oparte na favorite_genres i favorite_authors.
+    ✅ Rekomendacje oparte WYŁĄCZNIE na FAKTYCZNYCH interakcjach użytkownika
+    (wypożyczenia, recenzje) - BEZ potrzeby deklarowania preferencji.
 
     Parametry:
     - n: ile książek zwrócić
@@ -106,39 +164,46 @@ async def get_user_recommendations(
     - randomize: czy losowo wymieszać wyniki
     """
     db = get_database()
-    user_id = ObjectId(str(current_user.id))
+    user_id_oid = ObjectId(str(current_user.id))
+    user_id_str = str(current_user.id)
 
-    favorite_genres = current_user.favorite_genres or []
-    favorite_authors = current_user.favorite_authors or []
+    # 📊 Pobierz TOP gatunki i autorów z FAKTYCZNYCH interakcji
+    top_genres, top_authors = await get_user_interaction_preferences(db, user_id_oid, user_id_str)
 
-    if not favorite_genres and not favorite_authors:
-        raise HTTPException(
-            status_code=400,
-            detail="Dodaj ulubione gatunki lub autorów, aby otrzymać rekomendacje.",
-        )
+    logger.info(
+        f"📚 User {user_id_str[:8]} interaction-based preferences: "
+        f"genres={top_genres}, authors={top_authors}"
+    )
+
+    # Jeśli użytkownik nie ma ŻADNYCH interakcji - fallback na popularne
+    if not top_genres and not top_authors:
+        logger.warning(f"⚠️ User {user_id_str[:8]} has no interactions - using popular books")
+        return await get_popular_books_fallback(db, n, current_user)
 
     # 🔍 Pobierz WIĘCEJ książek niż potrzeba (dla rotacji)
-    fetch_limit = n + offset + 50  # Buffer na rotację
+    fetch_limit = n + offset + 50
 
     # Pipeline aggregacji
     pipeline = []
     match_conditions = []
 
-    if favorite_genres:
-        match_conditions.append({"genre": {"$in": favorite_genres}})
-    if favorite_authors:
-        match_conditions.append({"authors": {"$in": favorite_authors}})
+    if top_genres:
+        match_conditions.append({"genre": {"$in": top_genres}})
+    if top_authors:
+        match_conditions.append({"authors": {"$in": top_authors}})
 
     if match_conditions:
         pipeline.append({"$match": {"$or": match_conditions}})
 
-    # Wyklucz wypożyczone książki
-    borrowed = await db.loans.find({"user_id": user_id, "status": "active"}).distinct("book_id")
+    # Wyklucz już wypożyczone książki
+    borrowed = await db.loans.find(
+        {"$or": [{"user_id": user_id_oid}, {"user_id": user_id_str}], "status": "active"}
+    ).distinct("book_id")
 
     if borrowed:
         pipeline.append({"$match": {"_id": {"$nin": borrowed}}})
 
-    # Oblicz score
+    # Oblicz score na podstawie dopasowania do preferencji z interakcji
     pipeline.append(
         {
             "$addFields": {
@@ -146,7 +211,7 @@ async def get_user_recommendations(
                     "$size": {
                         "$setIntersection": [
                             {"$ifNull": ["$genre", []]},
-                            favorite_genres,
+                            top_genres,
                         ]
                     }
                 },
@@ -154,7 +219,7 @@ async def get_user_recommendations(
                     "$size": {
                         "$setIntersection": [
                             {"$ifNull": ["$authors", []]},
-                            favorite_authors,
+                            top_authors,
                         ]
                     }
                 },
@@ -191,18 +256,20 @@ async def get_user_recommendations(
 
     recommendations = []
     for book in books_after_offset:
-        rec_type = "content_based"
+        rec_type = "interaction_based"
         match_reason = None
 
         genre_matches = book.get("genre_match_count", 0)
         author_matches = book.get("author_match_count", 0)
 
         if genre_matches > 0 and author_matches > 0:
-            match_reason = f"Gatunek i autor: {', '.join(book.get('genre', [])[:1])}, {', '.join(book.get('authors', [])[:1])}"
+            match_reason = f"Gatunek i autor z Twoich wypożyczeń: {', '.join(book.get('genre', [])[:1])}, {', '.join(book.get('authors', [])[:1])}"
         elif genre_matches > 0:
-            match_reason = f"Gatunek: {', '.join(book.get('genre', [])[:2])}"
+            match_reason = f"Gatunek z Twoich wypożyczeń: {', '.join(book.get('genre', [])[:2])}"
         elif author_matches > 0:
-            match_reason = f"Autor: {', '.join(book.get('authors', [])[:1])}"
+            match_reason = f"Autor z Twoich wypożyczeń: {', '.join(book.get('authors', [])[:1])}"
+        else:
+            match_reason = "Popularna książka"
 
         book_data = normalize_book(serialize_doc(book))
         recommendations.append(
@@ -215,8 +282,8 @@ async def get_user_recommendations(
         )
 
     logger.info(
-        f"✅ Returning {len(recommendations)} recommendations for user {user_id} "
-        f"(offset={offset}, randomize={randomize})"
+        f"✅ Returning {len(recommendations)} interaction-based recommendations "
+        f"for user {user_id_str[:8]} (offset={offset}, randomize={randomize})"
     )
 
     return recommendations
@@ -267,6 +334,7 @@ async def set_my_preferences(
 ):
     """
     Zapisz preferencje użytkownika i zwróć zaktualizowany profil.
+    ⚠️ OPCJONALNE - system działa bez tego bazując na interakcjach
     """
     db = get_database()
 
@@ -289,7 +357,7 @@ async def get_user_stats(current_user=Depends(get_current_user)):
     """
     📊 Statystyki użytkownika oparte na FAKTYCZNYCH interakcjach
     - Top 3 gatunki (z wypożyczeń i recenzji)
-    - Top 3 autorzy
+    - Top 3 autorzy (z wypożyczeń i recenzji)  ← DODANE
     - Liczba interakcji
     - Średnia ocen
     """
@@ -306,10 +374,10 @@ async def get_user_stats(current_user=Depends(get_current_user)):
     ratings_sum = 0
     ratings_count = 0
 
-    async for loan in db.loans.find({"user_id": user_id_oid}):
+    # ✅ Wypożyczenia - z ObjectId i stringiem
+    async for loan in db.loans.find({"$or": [{"user_id": user_id_oid}, {"user_id": user_id_str}]}):
         total_borrows += 1
-        book_id = normalize_object_id(review.get("book_id"))
-
+        book_id = normalize_object_id(loan.get("book_id"))
         book = await db.books.find_one({"_id": book_id}) if book_id else None
 
         if book:
@@ -327,30 +395,7 @@ async def get_user_stats(current_user=Depends(get_current_user)):
                 if author:
                     author_counter[author] += 2
 
-    # Jeśli total_borrows == 0, spróbuj ze stringiem
-    if total_borrows == 0:
-        logger.warning(f"⚠️ No loans found with ObjectId, trying string...")
-        async for loan in db.loans.find({"user_id": user_id_str}):
-            total_borrows += 1
-            book_id = normalize_object_id(loan.get("book_id"))
-            book = await db.books.find_one({"_id": book_id}) if book_id else None
-
-            if book:
-                genres = book.get("genre", [])
-                if isinstance(genres, str):
-                    genres = [genres]
-                for genre in genres:
-                    if genre:
-                        genre_counter[genre] += 2
-
-                authors = book.get("authors") or book.get("author") or []
-                if isinstance(authors, str):
-                    authors = [authors]
-                for author in authors:
-                    if author:
-                        author_counter[author] += 2
-
-    # ✅ Recenzje - SZUKAJ PO OBYDWU
+    # ✅ Recenzje - z ObjectId i stringiem
     async for review in db.reviews.find(
         {"$or": [{"user_id": user_id_oid}, {"user_id": user_id_str}]}
     ):
@@ -360,7 +405,7 @@ async def get_user_stats(current_user=Depends(get_current_user)):
             ratings_sum += rating
             ratings_count += 1
 
-        book_id = normalize_object_id(loan.get("book_id"))
+        book_id = normalize_object_id(review.get("book_id"))
         book = await db.books.find_one({"_id": book_id}) if book_id else None
 
         if book:
@@ -378,12 +423,12 @@ async def get_user_stats(current_user=Depends(get_current_user)):
                 if author:
                     author_counter[author] += 1
 
-    # ✅ Views - SZUKAJ PO STRINGU (interactions używa stringów)
+    # ✅ Views - z interactions (używa stringów)
     total_views = await db.interactions.count_documents(
         {"user_id": user_id_str, "interaction_type": "view"}
     )
 
-    # 2. Top 3 gatunki i autorzy
+    # 📊 Top 3 gatunki i autorzy
     top_genres = [{"genre": genre, "count": count} for genre, count in genre_counter.most_common(3)]
 
     top_authors = [
@@ -395,7 +440,9 @@ async def get_user_stats(current_user=Depends(get_current_user)):
 
     logger.info(
         f"📊 Stats for user {user_id_str[:8]}: "
-        f"borrows={total_borrows}, reviews={total_reviews}, views={total_views}"
+        f"borrows={total_borrows}, reviews={total_reviews}, views={total_views}, "
+        f"top_genres={[g['genre'] for g in top_genres]}, "
+        f"top_authors={[a['author'] for a in top_authors]}"
     )
 
     return {
@@ -405,7 +452,7 @@ async def get_user_stats(current_user=Depends(get_current_user)):
         "total_views": total_views,
         "avg_rating": avg_rating,
         "top_genres": top_genres,
-        "top_authors": top_authors,
+        "top_authors": top_authors,  # ← DODANE do odpowiedzi
         "declared_genres": current_user.favorite_genres or [],
         "declared_authors": current_user.favorite_authors or [],
     }

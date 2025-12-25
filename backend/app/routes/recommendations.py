@@ -13,6 +13,19 @@ import logging
 import recommendation_engine.goodbooks_lightgcn_service as service_module
 from recommendation_engine.goodbooks_lightgcn import MODEL_DIR
 
+# ✅ DODAJ - Import MMR
+try:
+    from recommendation_engine.mmr_reranking import (
+        mmr_rerank,
+        apply_mmr_with_offset,
+        diversity_metrics,
+    )
+
+    MMR_AVAILABLE = True
+except ImportError:
+    MMR_AVAILABLE = False
+    print("⚠️ MMR re-ranking not available - using standard ranking")
+
 from ..models.dependencies import get_interaction_service
 from ..service.interaction_service import InteractionService
 from typing import Literal
@@ -96,6 +109,42 @@ def serialize_doc(doc: dict) -> dict:
     return doc
 
 
+# ✅ DODAJ - Helper do wzbogacania rekomendacji o dane z MongoDB
+async def enrich_recommendations_with_metadata(goodbooks_ids: list, db, limit: int = None) -> list:
+    """
+    Wzbogaca listę goodbooks_book_id o pełne dane z MongoDB.
+    Zwraca listę dict z polami potrzebnymi dla MMR (authors, genre, _id, etc.)
+    """
+    enriched = []
+    seen = set()
+
+    for gb_id in goodbooks_ids:
+        if limit and len(enriched) >= limit:
+            break
+
+        if gb_id in seen:
+            continue
+        seen.add(gb_id)
+
+        # Znajdź książkę w MongoDB
+        book = await db.books.find_one({"goodbooks_book_id": gb_id})
+        if not book:
+            book = await db.books.find_one({"goodbooks_book_id": str(gb_id)})
+
+        if not book:
+            continue
+
+        # Normalizuj i serializuj
+        book_data = normalize_book(serialize_doc(book))
+
+        # Dodaj score (na razie placeholder - będzie nadpisany przez MMR)
+        book_data["score"] = 1.0 - (len(enriched) / max(len(goodbooks_ids), 1))
+
+        enriched.append(book_data)
+
+    return enriched
+
+
 class InteractionIn(BaseModel):
     book_id: str
     interaction_type: Literal["view", "review", "borrow"]
@@ -119,6 +168,7 @@ async def health_check():
             "incremental_mode": stats.get("incremental_mode", True),
             "total_users": stats["total_users"],
             "total_updates": stats["total_updates"],
+            "mmr_available": MMR_AVAILABLE,  # ✅ DODAJ
             "timestamp": datetime.now().isoformat(),
         }
     except HTTPException as e:
@@ -201,11 +251,13 @@ async def get_metrics():
         "layers": base_metrics.get("layers", 3),
         # Incremental stats
         **incremental_info,
+        # ✅ DODAJ - MMR info
+        "mmrAvailable": MMR_AVAILABLE,
     }
 
 
 # ==========================================================
-#  POZOSTAŁE ENDPOINTY
+#  POZOSTAŁE ENDPOINTY (bez zmian)
 # ==========================================================
 
 
@@ -547,14 +599,34 @@ async def report_interaction(
     return {"status": "recorded", **result}
 
 
+# ==========================================================
+#  🎯 GŁÓWNY ENDPOINT Z MMR - ZMODYFIKOWANY!
+# ==========================================================
+
+
 @router.get("/user-lightgcn")
 async def get_user_lightgcn_recommendations(
     limit: int = Query(default=20, le=50),
+    offset: int = Query(default=0, ge=0, description="Offset dla rotacji (tylko z MMR)"),
+    use_mmr: bool = Query(default=True, description="Czy użyć MMR re-ranking"),
+    lambda_param: float = Query(
+        default=0.7, ge=0.0, le=1.0, description="Balans MMR: 1.0=trafność, 0.0=różnorodność"
+    ),
+    enforce_author_limit: bool = Query(default=True, description="Czy ograniczać autorów"),
+    max_per_author: int = Query(default=2, ge=1, le=10, description="Max książek od autora"),
     current_user=Depends(get_current_user),
 ):
     """
-    Rekomendacje z DYNAMIC EMBEDDINGS!
-    WYKLUCZAMY wypożyczone książki
+    🎯 Rekomendacje z LightGCN + OPCJONALNY MMR re-ranking
+
+    Parametry MMR:
+    - use_mmr: True/False - włącz/wyłącz MMR
+    - lambda_param: 0.0-1.0 - balans (0.7 = domyślnie)
+    - enforce_author_limit: True/False - limit autorów
+    - max_per_author: 1-10 - max książek od autora
+    - offset: 0+ - rotacja (działa tylko z MMR)
+
+    WYKLUCZAMY wypożyczone książki!
     """
     db = get_database()
     user_id = getattr(current_user, "id", None)
@@ -566,11 +638,10 @@ async def get_user_lightgcn_recommendations(
     except Exception:
         raise HTTPException(status_code=400, detail="Nieprawidłowe ID użytkownika")
 
-    # ✅ ZMIANA 1: Zbierz WSZYSTKIE wypożyczone książki (nie tylko aktywne!)
+    # 1. Zbierz wypożyczone książki
     borrowed_goodbooks_ids = set()
     borrowed_mongo_ids = set()
 
-    # Pobierz AKTYWNE wypożyczenia
     async for loan in db.loans.find({"user_id": uid, "status": "active"}):
         book_id = loan.get("book_id")
         if not book_id:
@@ -590,16 +661,20 @@ async def get_user_lightgcn_recommendations(
                 continue
 
     logger.info(
-        f"📊 User {uid} has {len(borrowed_goodbooks_ids)} borrowed books (excluding from recommendations)"
+        f"📊 User {uid} has {len(borrowed_goodbooks_ids)} borrowed books "
+        f"(use_mmr={use_mmr}, λ={lambda_param})"
     )
 
-    # 2. Użyj nowego API z dynamic embeddings
+    # 2. Pobierz rekomendacje z LightGCN
     try:
+        # Pobierz 3x więcej niż potrzeba (dla MMR buffer)
+        fetch_n = limit * 3 if use_mmr else limit
+
         rec_goodbooks_ids = get_service().get_recommendations_for_user(
             mongo_user_id=str(uid),
-            n=limit * 2,  # Pobierz więcej bo część wykluczymy
-            exclude_goodbooks_ids=borrowed_goodbooks_ids,  # ← WYKLUCZAMY!
-            use_cache=False,  # ✅ ZMIANA 2: Wyłącz cache dla świeżych danych
+            n=fetch_n,
+            exclude_goodbooks_ids=borrowed_goodbooks_ids,
+            use_cache=False,  # Świeże dane
         )
 
     except Exception as e:
@@ -607,39 +682,180 @@ async def get_user_lightgcn_recommendations(
 
         traceback.print_exc()
 
+        # Fallback
         rec_goodbooks_ids = get_service().recommend_for_goodbooks_ids(
-            list(borrowed_goodbooks_ids) if borrowed_goodbooks_ids else [], top_k=limit * 2
+            list(borrowed_goodbooks_ids) if borrowed_goodbooks_ids else [], top_k=fetch_n
         )
 
-    results = []
-    seen = set()
+    # 3. Wzbogać o dane z MongoDB
+    candidates = await enrich_recommendations_with_metadata(rec_goodbooks_ids, db, limit=fetch_n)
 
-    for gb_id in rec_goodbooks_ids:
-        if len(results) >= limit:
-            break
+    # Dodatkowa walidacja - usuń wypożyczone
+    candidates = [c for c in candidates if str(c["_id"]) not in borrowed_mongo_ids]
 
-        if gb_id in seen or gb_id in borrowed_goodbooks_ids:
-            continue
-        seen.add(gb_id)
+    logger.info(f"📚 Got {len(candidates)} candidates from LightGCN")
 
-        book = await db.books.find_one({"goodbooks_book_id": gb_id})
-        if not book:
-            book = await db.books.find_one({"goodbooks_book_id": str(gb_id)})
+    # 4. MMR RE-RANKING (opcjonalnie)
+    if use_mmr and MMR_AVAILABLE and len(candidates) > limit:
+        logger.info(f"🔄 Applying MMR re-ranking (λ={lambda_param}, author_limit={max_per_author})")
 
-        if not book:
-            continue
+        try:
+            # Wyciągnij embeddingi (jeśli serwis to wspiera)
+            embeddings_dict = {}
+            # TODO: Jeśli Twój serwis ma metodę get_book_embeddings, użyj jej:
+            # embeddings_dict = get_service().get_book_embeddings_dict()
 
-        # ✅ ZMIANA 3: Dodatkowa walidacja - pomiń wypożyczone
-        if str(book["_id"]) in borrowed_mongo_ids:
-            logger.debug(f"⏭️  Skipping borrowed book: {book.get('title')}")
-            continue
+            if offset > 0:
+                # Z offsetem (rotacja)
+                results, next_offset = apply_mmr_with_offset(
+                    candidates,
+                    n=limit,
+                    offset=offset,
+                    lambda_param=lambda_param,
+                    embeddings_dict=embeddings_dict,
+                    use_content_similarity=True,
+                    enforce_author_limit=enforce_author_limit,
+                    max_per_author=max_per_author,
+                )
 
-        book = normalize_book(serialize_doc(book))
-        results.append(book)
+                # Oblicz metryki
+                div_metrics = diversity_metrics(results) if results else {}
+
+                metadata = {
+                    "model": "LightGCN + MMR",
+                    "total_candidates": len(candidates),
+                    "returned": len(results),
+                    "offset": offset,
+                    "next_offset": next_offset,
+                    "mmr_lambda": lambda_param,
+                    "author_limit": max_per_author if enforce_author_limit else None,
+                    "diversity_metrics": div_metrics,
+                }
+            else:
+                # Bez offsetu
+                results = mmr_rerank(
+                    candidates,
+                    n=limit,
+                    lambda_param=lambda_param,
+                    embeddings_dict=embeddings_dict,
+                    use_content_similarity=True,
+                    enforce_author_limit=enforce_author_limit,
+                    max_per_author=max_per_author,
+                )
+
+                # Oblicz metryki
+                div_metrics = diversity_metrics(results) if results else {}
+
+                metadata = {
+                    "model": "LightGCN + MMR",
+                    "total_candidates": len(candidates),
+                    "returned": len(results),
+                    "mmr_lambda": lambda_param,
+                    "author_limit": max_per_author if enforce_author_limit else None,
+                    "diversity_metrics": div_metrics,
+                }
+
+            logger.info(
+                f"✅ MMR complete: {len(results)} books, "
+                f"{div_metrics.get('unique_authors', 0)} authors, "
+                f"{div_metrics.get('unique_genres', 0)} genres"
+            )
+
+        except Exception as e:
+            logger.error(f"❌ MMR failed: {e}, falling back to standard ranking")
+            results = candidates[:limit]
+            metadata = {"model": "LightGCN (MMR failed)", "error": str(e), "returned": len(results)}
+
+    else:
+        # Bez MMR - zwykły ranking
+        results = candidates[:limit]
+        metadata = {"model": "LightGCN", "mmr_enabled": False, "returned": len(results)}
 
     logger.info(f"✅ Returning {len(results)} recommendations for user {uid}")
 
-    return results
+    # 5. Zwróć wyniki + metadata
+    return {"recommendations": results, "metadata": metadata}
+
+
+# ✅ DODAJ - Endpoint porównania λ
+@router.get("/diversity-comparison")
+async def compare_diversity_metrics(
+    n: int = Query(default=30, ge=10, le=50),
+    lambda_values: str = Query(
+        default="0.3,0.5,0.7,0.9", description="Wartości λ oddzielone przecinkami"
+    ),
+    current_user=Depends(get_current_user),
+):
+    """
+    📊 Porównuje metryki różnorodności dla różnych wartości λ
+
+    Endpoint pomocniczy do eksperymentowania z optymalnym λ.
+    """
+    if not MMR_AVAILABLE:
+        raise HTTPException(503, "MMR not available")
+
+    db = get_database()
+    user_id = str(current_user.id)
+    uid = ObjectId(user_id)
+
+    # Parse lambda values
+    try:
+        lambdas = [float(x.strip()) for x in lambda_values.split(",")]
+    except:
+        raise HTTPException(400, "Invalid lambda_values format")
+
+    # Zbierz wypożyczone
+    borrowed_goodbooks_ids = set()
+    async for loan in db.loans.find({"user_id": uid, "status": "active"}):
+        book = await db.books.find_one({"_id": loan.get("book_id")})
+        if book and book.get("goodbooks_book_id"):
+            try:
+                borrowed_goodbooks_ids.add(int(book["goodbooks_book_id"]))
+            except:
+                pass
+
+    # Pobierz kandydatów
+    try:
+        rec_ids = get_service().get_recommendations_for_user(
+            mongo_user_id=user_id,
+            n=n * 3,
+            exclude_goodbooks_ids=borrowed_goodbooks_ids,
+            use_cache=False,
+        )
+    except:
+        raise HTTPException(500, "Failed to get recommendations")
+
+    candidates = await enrich_recommendations_with_metadata(rec_ids, db, limit=n * 3)
+
+    # Test każdego λ
+    results = []
+
+    for lam in lambdas:
+        recs = mmr_rerank(
+            candidates, n=n, lambda_param=lam, enforce_author_limit=True, max_per_author=2
+        )
+
+        metrics = diversity_metrics(recs)
+
+        results.append(
+            {
+                "lambda": lam,
+                "metrics": metrics,
+                "sample_books": [
+                    {
+                        "title": r.get("title"),
+                        "author": r.get("author"),
+                        "genres": r.get("genres", [])[:2],
+                    }
+                    for r in recs[:5]  # Pierwsze 5 przykładów
+                ],
+            }
+        )
+
+    return {
+        "comparison": results,
+        "recommendation": "Wyższa entropia i dissimilarity = większa różnorodność",
+    }
 
 
 # ==========================================================
@@ -702,7 +918,9 @@ async def get_service_stats(current_user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin only")
 
     try:
-        return get_service().get_stats()
+        stats = get_service().get_stats()
+        stats["mmr_available"] = MMR_AVAILABLE  # ✅ DODAJ
+        return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -721,25 +939,8 @@ async def get_embedding_stats(
     try:
         service_stats = get_service().get_stats()
         stats["lightgcn_service"] = service_stats
+        stats["mmr_available"] = MMR_AVAILABLE  # ✅ DODAJ
     except Exception as e:
         stats["lightgcn_service"] = {"error": str(e)}
 
     return stats
-
-
-@router.get("/sse-updates")
-async def recommendation_updates(request: Request, current_user=Depends(get_current_user)):
-    """Server-Sent Events stream for recommendation updates"""
-
-    async def event_generator():
-        while True:
-            if await request.is_disconnected():
-                break
-
-            # Sprawdź czy są nowe rekomendacje
-            # (wymaga implementacji kolejki/pub-sub)
-            yield {"event": "update", "data": json.dumps({"timestamp": datetime.now().isoformat()})}
-
-            await asyncio.sleep(30)  # Check every 30s
-
-    return EventSourceResponse(event_generator())

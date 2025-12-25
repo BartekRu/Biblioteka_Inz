@@ -20,6 +20,8 @@ import AutoStoriesIcon from '@mui/icons-material/AutoStories';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import StarIcon from '@mui/icons-material/Star';
+import PersonIcon from '@mui/icons-material/Person';
+import { recommendationsAPI } from '../services/api';
 
 import { usersAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -35,21 +37,20 @@ const UserProfile = () => {
   const [recOffset, setRecOffset] = useState(0);
 
   const [stats, setStats] = useState(null);
-  const [statsLoading, setStatsLoading] = useState(false);
+  // statsLoading removed - not used in UI
 
   /* ============================
      FETCH STATS (INTERACTIONS)
   ============================ */
   const fetchStats = useCallback(async () => {
-    setStatsLoading(true);
+    // setStatsLoading(true); // Removed
     try {
-      const res = await usersAPI.getStats();
+      const res = await usersAPI.getUserStats();
       setStats(res.data);
     } catch (err) {
       console.error('Stats error:', err);
-    } finally {
-      setStatsLoading(false);
     }
+    // finally block removed - statsLoading not used
   }, []);
 
   /* ============================
@@ -59,13 +60,21 @@ const UserProfile = () => {
     setRecLoading(true);
     setRecError('');
     try {
-      const res = await usersAPI.getRecommendations({
-        n: 8,
-        offset,
-        randomize: false,
-      });
+      // ✅ Używamy recommendationsAPI.getUserLightGCN zamiast usersAPI
+      const res = await recommendationsAPI.getUserLightGCN(
+        8, // limit
+        offset, // offset dla rotacji
+        true, // use_mmr
+        0.7, // lambda_param
+        true, // enforce_author_limit
+        2 // max_per_author
+      );
 
-      setRecommendations(Array.isArray(res.data) ? res.data : []);
+      // ✅ Obsługa nowego formatu z metadata
+      const data = res.data;
+      const recs = data.recommendations || data || [];
+
+      setRecommendations(Array.isArray(recs) ? recs : []);
       setRecOffset(offset);
     } catch (err) {
       const status = err.response?.status;
@@ -104,6 +113,8 @@ const UserProfile = () => {
     switch (type) {
       case 'collaborative':
         return { label: 'AI', color: 'primary' };
+      case 'interaction_based':
+        return { label: 'Na podstawie Twoich interakcji', color: 'success' };
       case 'content_based':
         return { label: 'Dopasowane', color: 'success' };
       case 'popular':
@@ -184,6 +195,39 @@ const UserProfile = () => {
                   </Stack>
                 </Box>
               )}
+
+              {/* ✅ TOP 3 AUTHORS - NOWA SEKCJA */}
+              {stats.top_authors?.length > 0 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography
+                    fontWeight={600}
+                    gutterBottom
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                  >
+                    <PersonIcon color="secondary" /> Twoi TOP 3 autorzy (z interakcji)
+                  </Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    {stats.top_authors.map((a, idx) => (
+                      <Chip
+                        key={a.author}
+                        label={`${idx + 1}. ${a.author} (${a.count})`}
+                        color={idx === 0 ? 'secondary' : 'default'}
+                        variant={idx === 0 ? 'filled' : 'outlined'}
+                        sx={{ fontWeight: idx === 0 ? 700 : 500 }}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+
+              {/* INFO: Brak interakcji */}
+              {(!stats.top_genres || stats.top_genres.length === 0) &&
+                (!stats.top_authors || stats.top_authors.length === 0) && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    Brak wystarczających interakcji. Wypożycz lub oceń książki, aby zobaczyć swoje
+                    preferencje!
+                  </Alert>
+                )}
             </Box>
 
             <Divider sx={{ my: 4 }} />
@@ -210,7 +254,9 @@ const UserProfile = () => {
           </Box>
 
           {recLoading ? (
-            <CircularProgress size={24} />
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
           ) : recError ? (
             <Alert severity="info">{recError}</Alert>
           ) : recommendations.length === 0 ? (
@@ -233,18 +279,25 @@ const UserProfile = () => {
 
                 return (
                   <Grid item xs={12} sm={6} md={3} key={rec._id}>
-                    <Card sx={{ height: '100%' }}>
-                      <CardContent>
-                        <Typography fontWeight={600}>{rec.title}</Typography>
+                    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <CardContent sx={{ flexGrow: 1 }}>
+                        <Typography fontWeight={600} gutterBottom>
+                          {rec.title}
+                        </Typography>
 
                         {authors.length > 0 && (
-                          <Typography variant="body2" color="text.secondary">
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
                             {authors.join(', ')}
                           </Typography>
                         )}
 
                         {genres.length > 0 && (
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            display="block"
+                            gutterBottom
+                          >
                             {genres.join(', ')}
                           </Typography>
                         )}
@@ -263,7 +316,7 @@ const UserProfile = () => {
                           <Typography
                             variant="caption"
                             color="text.secondary"
-                            sx={{ display: 'block', mt: 1 }}
+                            sx={{ display: 'block', mt: 1, fontStyle: 'italic' }}
                           >
                             💡 {rec.match_reason}
                           </Typography>
