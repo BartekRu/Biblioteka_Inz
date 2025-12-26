@@ -11,9 +11,9 @@ import logging
 # Database
 from .database import connect_to_mongo, close_mongo_connection, get_database
 
-# Routes
-from .routes import auth, books, users, loans, reviews, recommendations, views
-
+# Routes - ✅ POPRAWIONE IMPORTY
+from .routes import auth, books, users, loans, reviews, views
+from .routes.recommendations import router as recommendations_router  # ← FIX!
 
 # Recommendation service (twój istniejący LightGCN)
 from recommendation_engine.goodbooks_lightgcn_service import get_service
@@ -98,7 +98,7 @@ app.add_middleware(
 )
 
 # ============================================================================
-# Rejestracja routerów
+# Rejestracja routerów - ✅ POPRAWIONE
 # ============================================================================
 
 # Core routes
@@ -109,8 +109,8 @@ app.include_router(loans.router, prefix="/v1/loans", tags=["Loans"])
 app.include_router(reviews.router, prefix="/v1/reviews", tags=["Reviews"])
 app.include_router(views.router, prefix="/v1/views", tags=["Views"])
 
-# Recommendations routes
-app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["Recommendations"])
+# Recommendations routes - ✅ POPRAWIONE (było: recommendation.router)
+app.include_router(recommendations_router, prefix="/v1/recommendations", tags=["Recommendations"])
 
 
 @app.get("/")

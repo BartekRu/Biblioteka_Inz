@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from collections import Counter
 from datetime import datetime, timedelta
 
-from app.routes.recommendations import normalize_book, serialize_doc
+from .recommendation_helpers import normalize_book, serialize_doc
 import logging
 from collections import Counter
 
