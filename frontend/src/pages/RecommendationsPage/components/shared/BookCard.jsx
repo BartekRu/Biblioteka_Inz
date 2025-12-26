@@ -95,7 +95,26 @@ const BookCard = ({
           sx={{ objectFit: 'cover' }}
         />
 
-        {/* Hover Overlay */}
+        {/* Availability Badge - Lower z-index */}
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 8,
+            left: 8,
+            bgcolor: available ? 'rgba(76, 175, 80, 0.9)' : 'rgba(244, 67, 54, 0.9)',
+            color: 'white',
+            px: 1,
+            py: 0.25,
+            borderRadius: 0.5,
+            fontSize: '0.65rem',
+            fontWeight: 600,
+            zIndex: 1, // Below hover overlay
+          }}
+        >
+          {available ? 'Dostępna' : 'Wypożyczona'}
+        </Box>
+
+        {/* Hover Overlay - Higher z-index */}
         <Box
           sx={{
             position: 'absolute',
@@ -107,6 +126,8 @@ const BookCard = ({
             flexDirection: 'column',
             justifyContent: 'flex-end',
             p: 1.5,
+            zIndex: 2, // Above availability badge
+            pointerEvents: isHovered ? 'auto' : 'none', // Only capture clicks when visible
           }}
         >
           <Typography
@@ -131,6 +152,7 @@ const BookCard = ({
                   fontSize: '0.65rem',
                   bgcolor: 'rgba(102, 192, 244, 0.3)',
                   color: COLORS.accent,
+                  border: '1px solid rgba(102, 192, 244, 0.5)', // Subtle border for visibility
                 }}
               />
             ))}
@@ -148,6 +170,7 @@ const BookCard = ({
             color: bookmarked ? COLORS.goldAccent : 'white',
             opacity: isHovered || bookmarked ? 1 : 0,
             transition: 'opacity 0.2s',
+            zIndex: 3, // Above everything
             '&:hover': {
               bgcolor: 'rgba(0,0,0,0.7)',
             },
@@ -156,24 +179,6 @@ const BookCard = ({
         >
           {bookmarked ? <Bookmark /> : <BookmarkBorder />}
         </IconButton>
-
-        {/* Availability Badge */}
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 8,
-            left: 8,
-            bgcolor: available ? 'rgba(76, 175, 80, 0.9)' : 'rgba(244, 67, 54, 0.9)',
-            color: 'white',
-            px: 1,
-            py: 0.25,
-            borderRadius: 0.5,
-            fontSize: '0.65rem',
-            fontWeight: 600,
-          }}
-        >
-          {available ? 'Dostępna' : 'Wypożyczona'}
-        </Box>
 
         {/* Match Score Badge */}
         {showScore && matchScore && (
@@ -190,6 +195,7 @@ const BookCard = ({
                 borderRadius: 0.5,
                 fontSize: '0.7rem',
                 fontWeight: 700,
+                zIndex: 3, // Above hover overlay
               }}
             >
               {matchScore}%
@@ -236,7 +242,7 @@ const BookCard = ({
         </Box>
 
         {/* Recommendation Reason */}
-        {showReason && (
+        {showReason && reason && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
             <InfoOutlined sx={{ fontSize: 12, color: COLORS.textSecondary }} />
             <Typography

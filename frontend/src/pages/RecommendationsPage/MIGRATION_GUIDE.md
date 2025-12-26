@@ -469,7 +469,6 @@ Aby naprawić:
 ```jsx
 // W RecommendationsPage.jsx - dodaj logi
 useEffect(() => {
-  console.log('🔄 MMR settings changed:', { mmrEnabled, lambdaValue, authorLimit });
   fetchAllRecommendations();
 }, [mmrEnabled, lambdaValue, authorLimit]);
 ```

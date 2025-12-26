@@ -5,7 +5,6 @@ export const useRecommendationsRefresh = () => {
 
   const triggerRefresh = useCallback(() => {
     setRefreshKey((prev) => prev + 1);
-    console.log('🔄 Triggering recommendations refresh');
   }, []);
 
   return { refreshKey, triggerRefresh };

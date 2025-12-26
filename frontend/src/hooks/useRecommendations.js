@@ -9,19 +9,13 @@ export const useGenreRecommendations = (limit = 3, booksPerGenre = 10) => {
   const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
-    console.log('🔄 Fetching genre recommendations...', { limit, booksPerGenre });
     setLoading(true);
     setError(null);
 
     try {
       const response = await recommendationsAPI.getByGenre(limit, booksPerGenre);
       
-      console.log('✅ Genre recommendations response:', {
-        type: typeof response,
-        isArray: Array.isArray(response),
-        length: response?.length,
-        data: response,
-      });
+      
 
       // Validate response
       if (!response) {
@@ -69,20 +63,13 @@ export const useSimilarReadersRecommendations = (limit = 15) => {
   const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
-    console.log('🔄 Fetching similar readers recommendations...', { limit });
     setLoading(true);
     setError(null);
 
     try {
       const response = await recommendationsAPI.getSimilarReaders(limit);
       
-      console.log('✅ Similar readers response:', {
-        type: typeof response,
-        hasBooks: !!response?.books,
-        booksCount: response?.books?.length,
-        similarUserCount: response?.similar_user_count,
-        data: response,
-      });
+      
 
       // Validate response
       if (!response) {
@@ -132,19 +119,13 @@ export const useAuthorRecommendations = (limit = 3, booksPerAuthor = 10) => {
   const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
-    console.log('🔄 Fetching author recommendations...', { limit, booksPerAuthor });
     setLoading(true);
     setError(null);
 
     try {
       const response = await recommendationsAPI.getByAuthor(limit, booksPerAuthor);
       
-      console.log('✅ Author recommendations response:', {
-        type: typeof response,
-        isArray: Array.isArray(response),
-        length: response?.length,
-        data: response,
-      });
+      
 
       if (!Array.isArray(response)) {
         console.warn('⚠️ Response is not an array, wrapping...', response);
@@ -187,11 +168,9 @@ export const useAPIHealthCheck = () => {
 
   useEffect(() => {
     const checkHealth = async () => {
-      console.log('🏥 Checking API health...');
       
       try {
         const response = await recommendationsAPI.getHealth();
-        console.log('✅ API Health:', response);
         setStatus(response);
       } catch (err) {
         console.error('❌ API Health check failed:', err);

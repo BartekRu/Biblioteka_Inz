@@ -16,18 +16,9 @@ import { recommendationsAPI } from '../../../../services/api';
 const GenreRecommendations = ({ genreSections, loading, error }) => {
   const navigate = useNavigate();
 
-  // 🔍 DEBUG: Log when component mounts and when data changes
-  useEffect(() => {
-    console.log('🎯 GenreRecommendations mounted/updated:', {
-      loading,
-      error,
-      sectionsCount: genreSections?.length || 0,
-      sections: genreSections,
-    });
-  }, [genreSections, loading, error]);
+  
 
   const handleBookClick = async (book, genre) => {
-    console.log('📖 Book clicked:', { book: book.title, genre });
 
     try {
       await recommendationsAPI.reportInteraction(book._id, 'view', {
@@ -42,13 +33,11 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
   };
 
   const handleSeeMore = (genre) => {
-    console.log('🔍 See more clicked for genre:', genre);
     navigate(`/books?genre=${genre}`);
   };
 
   // Loading state
   if (loading) {
-    console.log('⏳ GenreRecommendations: Loading...');
     return (
       <Box sx={pageStyles.sectionContainer}>
         <LoadingSkeleton.Section cardCount={4} />
@@ -87,7 +76,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
     );
   }
 
-  console.log(`✅ GenreRecommendations: Rendering ${genreSections.length} sections`);
 
   return (
     <>
@@ -105,7 +93,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
           return null;
         }
 
-        console.log(`📚 Rendering section for genre: ${genre} (${books.length} books)`);
 
         return (
           <Box key={genre || idx} sx={pageStyles.sectionContainer}>

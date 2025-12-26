@@ -26,9 +26,7 @@ export const useReviews = () => {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
-      console.log('✅ Review created:', response.data);
-      console.log('✅ Interaction weight: 0.8 (review)');
-      console.log('✅ Embedding updated:', response.data.embedding_updated);
+      
 
       return response.data;
       
@@ -72,9 +70,7 @@ export const useLoans = () => {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
-      console.log('✅ Book borrowed:', response.data);
-      console.log('✅ Interaction weight: 1.0 (borrow - strongest signal!)');
-      console.log('✅ Embedding updated:', response.data.embedding_updated);
+    
 
       return response.data;
       
@@ -99,7 +95,6 @@ export const useLoans = () => {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
-      console.log('✅ Book returned');
       
     } catch (err) {
       setError(err.response?.data?.detail || 'Error returning book');
@@ -149,10 +144,8 @@ export const useViews = () => {
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 
-      console.log('✅ View registered (weight: 0.3)');
       
     } catch (err) {
-      // Nie blokuj UI - to nie jest krytyczny błąd
       console.warn('⚠️ Failed to register view:', err);
     }
   };

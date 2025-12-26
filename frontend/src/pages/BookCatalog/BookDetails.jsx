@@ -46,10 +46,7 @@ const BookDetails = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
   const { invalidateRecommendations } = useRecommendations();
-  console.log(
-    '📖 BookDetails render, invalidateRecommendations:',
-    typeof invalidateRecommendations
-  );
+  
 
   // Stan książki
   const [book, setBook] = useState(null);
@@ -130,13 +127,9 @@ const BookDetails = () => {
     try {
       setBorrowing(true);
 
-      console.log('⚡ PRZED create loan'); // ← DODANE
       await loansAPI.create(book._id);
-      console.log('✅ Loan created'); // ← DODANE
 
-      console.log('⚡ PRZED reportInteraction'); // ← DODANE
       await recommendationsAPI.reportInteraction(book._id, 'borrow');
-      console.log('✅ Interaction reported'); // ← DODANE
 
       const response = await booksAPI.getById(id);
       setBook(response.data);
@@ -144,9 +137,7 @@ const BookDetails = () => {
       setBorrowDialog(false);
       setBorrowSuccess(true);
 
-      console.log('⚡ PRZED invalidateRecommendations'); // ← DODANE
       invalidateRecommendations('book_borrowed');
-      console.log('✅ PO invalidateRecommendations'); // ← DODANE
 
       setSnackbar({
         open: true,

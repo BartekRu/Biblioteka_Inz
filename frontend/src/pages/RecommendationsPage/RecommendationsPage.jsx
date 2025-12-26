@@ -72,7 +72,6 @@ const RecommendationsPage = () => {
   // Reaguj na zmiany refreshTrigger z kontekstu
   useEffect(() => {
     if (prevTriggerRef.current !== refreshTrigger) {
-      console.log(`🔔 refreshTrigger changed: ${prevTriggerRef.current} → ${refreshTrigger}`);
       prevTriggerRef.current = refreshTrigger;
       if (user) {
         fetchAllRecommendations();
@@ -101,11 +100,7 @@ const RecommendationsPage = () => {
       setLoading(true);
       setError(null);
 
-      console.log('🔄 Fetching recommendations with MMR:', {
-        mmrEnabled,
-        lambdaValue,
-        authorLimit,
-      });
+      
 
       // 🔧 POPRAWIONE - Parallel fetch wszystkich sekcji
       const [
@@ -169,33 +164,28 @@ const RecommendationsPage = () => {
           setDiversityMetrics(metadata.diversity_metrics);
         }
 
-        console.log(`✅ Loaded ${recs.length} top recommendations`);
       }
 
       // Process SEKCJA B
       if (becauseRes.status === 'fulfilled') {
         const sections = becauseRes.value.data || [];
         setBecauseSections(sections);
-        console.log(`✅ Loaded ${sections.length} "Because You Borrowed" sections`);
       }
 
       if (genreRes.status === 'fulfilled') {
         const sections = genreRes.value.data || [];
         setGenreSections(sections);
-        console.log(`✅ Loaded ${sections.length} genre sections`);
       }
 
       if (authorRes.status === 'fulfilled') {
         const sections = authorRes.value.data || [];
         setAuthorSections(sections);
-        console.log(`✅ Loaded ${sections.length} author sections`);
       }
 
       if (similarReadersRes.status === 'fulfilled') {
         const data = similarReadersRes.value.data || {};
         setSimilarReadersBooks(data.books || []);
         setSimilarUserCount(data.similar_user_count || 0);
-        console.log(`✅ Loaded ${data.books?.length || 0} books from similar readers`);
       }
 
       // Process SEKCJA C
@@ -203,20 +193,17 @@ const RecommendationsPage = () => {
         const data = diverseRes.value.data;
         const recs = data.recommendations || (Array.isArray(data) ? data : []);
         setDiverseBooks(recs);
-        console.log(`✅ Loaded ${recs.length} diverse books`);
       }
 
       if (newArrivalsRes.status === 'fulfilled') {
         const books = newArrivalsRes.value.data || [];
         setNewArrivals(books);
-        console.log(`✅ Loaded ${books.length} new arrivals`);
       }
 
       // 🆕 Process Hidden Gems
       if (hiddenGemsRes.status === 'fulfilled') {
         const books = hiddenGemsRes.value.data || [];
         setHiddenGems(books);
-        console.log(`✅ Loaded ${books.length} hidden gems`);
       } else {
         console.warn('⚠️ Hidden Gems endpoint failed:', hiddenGemsRes.reason);
       }
@@ -225,7 +212,6 @@ const RecommendationsPage = () => {
       if (highlyRatedRes.status === 'fulfilled') {
         const books = highlyRatedRes.value.data || [];
         setHighlyRated(books);
-        console.log(`✅ Loaded ${books.length} highly rated books`);
       } else {
         console.warn('⚠️ Highly Rated endpoint failed:', highlyRatedRes.reason);
       }

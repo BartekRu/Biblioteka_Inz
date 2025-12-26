@@ -518,7 +518,6 @@ export const usersAPI = {
     try {
       return await apiClient.get('/v1/users/me/stats');
     } catch (err) {
-      console.log('Using embedding-stats as fallback for user stats');
       return await recommendationsAPI.getEmbeddingStats();
     }
   },
