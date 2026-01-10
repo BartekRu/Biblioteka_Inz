@@ -30,21 +30,18 @@ const HiddenGems = ({ books, loading }) => {
     return null;
   }
 
-  // Oblicz średnią ocenę i średnią liczbę wypożyczeń
   const avgRating =
     books.reduce((sum, b) => sum + (b.average_rating || b.averageRating || 0), 0) / books.length;
   const avgBorrows = books.reduce((sum, b) => sum + (b.borrow_count || 0), 0) / books.length;
 
   return (
     <Box sx={pageStyles.sectionContainer}>
-      {/* Section Title */}
       <SectionTitle
         icon={AutoAwesome}
         title="Ukryte skarby"
         subtitle="Mało znane perełki, które warto odkryć"
       />
 
-      {/* Stats Chips */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
         <Badge badgeContent={books.length} color="primary" max={99}>
           <Chip
@@ -79,7 +76,6 @@ const HiddenGems = ({ books, loading }) => {
         />
       </Box>
 
-      {/* Books Carousel */}
       <HorizontalBookScroll
         books={books.slice(0, 15)}
         onBookClick={handleBookClick}
@@ -88,7 +84,6 @@ const HiddenGems = ({ books, loading }) => {
         interactionSource="hidden-gems"
       />
 
-      {/* Explanation */}
       <Paper
         sx={{
           mt: 2,

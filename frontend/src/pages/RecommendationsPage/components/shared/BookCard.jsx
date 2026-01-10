@@ -1,7 +1,3 @@
-/**
- * BookCard.jsx - Reusable book card component with Steam-inspired design
- */
-
 import React, { useState } from 'react';
 import {
   Card,
@@ -52,7 +48,7 @@ const BookCard = ({
       );
     } catch (err) {
       console.error('Failed to report wishlist interaction', err);
-      setBookmarked(!newValue); // Rollback on error
+      setBookmarked(!newValue);
     }
   };
 
@@ -77,7 +73,6 @@ const BookCard = ({
       }}
       elevation={0}
     >
-      {/* Cover Image */}
       <Box
         className="book-cover"
         sx={{
@@ -95,7 +90,6 @@ const BookCard = ({
           sx={{ objectFit: 'cover' }}
         />
 
-        {/* Availability Badge - Lower z-index */}
         <Box
           sx={{
             position: 'absolute',
@@ -108,13 +102,12 @@ const BookCard = ({
             borderRadius: 0.5,
             fontSize: '0.65rem',
             fontWeight: 600,
-            zIndex: 1, // Below hover overlay
+            zIndex: 1,
           }}
         >
           {available ? 'Dostępna' : 'Wypożyczona'}
         </Box>
 
-        {/* Hover Overlay - Higher z-index */}
         <Box
           sx={{
             position: 'absolute',
@@ -126,8 +119,8 @@ const BookCard = ({
             flexDirection: 'column',
             justifyContent: 'flex-end',
             p: 1.5,
-            zIndex: 2, // Above availability badge
-            pointerEvents: isHovered ? 'auto' : 'none', // Only capture clicks when visible
+            zIndex: 2,
+            pointerEvents: isHovered ? 'auto' : 'none',
           }}
         >
           <Typography
@@ -152,14 +145,13 @@ const BookCard = ({
                   fontSize: '0.65rem',
                   bgcolor: 'rgba(102, 192, 244, 0.3)',
                   color: COLORS.accent,
-                  border: '1px solid rgba(102, 192, 244, 0.5)', // Subtle border for visibility
+                  border: '1px solid rgba(102, 192, 244, 0.5)',
                 }}
               />
             ))}
           </Box>
         </Box>
 
-        {/* Bookmark Button */}
         <IconButton
           onClick={handleBookmark}
           sx={{
@@ -170,7 +162,7 @@ const BookCard = ({
             color: bookmarked ? COLORS.goldAccent : 'white',
             opacity: isHovered || bookmarked ? 1 : 0,
             transition: 'opacity 0.2s',
-            zIndex: 3, // Above everything
+            zIndex: 3,
             '&:hover': {
               bgcolor: 'rgba(0,0,0,0.7)',
             },
@@ -180,7 +172,6 @@ const BookCard = ({
           {bookmarked ? <Bookmark /> : <BookmarkBorder />}
         </IconButton>
 
-        {/* Match Score Badge */}
         {showScore && matchScore && (
           <Tooltip title="Dopasowanie do Twoich preferencji">
             <Box
@@ -195,7 +186,7 @@ const BookCard = ({
                 borderRadius: 0.5,
                 fontSize: '0.7rem',
                 fontWeight: 700,
-                zIndex: 3, // Above hover overlay
+                zIndex: 3,
               }}
             >
               {matchScore}%
@@ -204,7 +195,6 @@ const BookCard = ({
         )}
       </Box>
 
-      {/* Card Content */}
       <CardContent sx={{ px: 0, py: 1 }}>
         <Typography
           variant="body2"
@@ -224,7 +214,6 @@ const BookCard = ({
           {book.author}
         </Typography>
 
-        {/* Rating */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
           <Rating
             value={rating}
@@ -241,7 +230,6 @@ const BookCard = ({
           </Typography>
         </Box>
 
-        {/* Recommendation Reason */}
         {showReason && reason && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
             <InfoOutlined sx={{ fontSize: 12, color: COLORS.textSecondary }} />

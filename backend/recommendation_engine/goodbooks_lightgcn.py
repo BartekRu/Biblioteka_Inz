@@ -26,9 +26,7 @@ BATCH_SIZE = 4096
 NEGATIVE_SAMPLES = 1
 
 
-# ============================================================
-#                   LIGHTGCN MODEL (PRO)
-# ============================================================
+
 class LightGCN(nn.Module):
     """
     Zgodna z artykułem: 'LightGCN – Simplifying Graph Convolution Network
@@ -43,18 +41,17 @@ class LightGCN(nn.Module):
         self.embedding = nn.Embedding(self.num_nodes, EMBEDDING_DIM)
         nn.init.xavier_uniform_(self.embedding.weight)
 
-        # warstwy propagacji zgodne z LightGCN
         self.layers = LAYERS
 
     def propagate(self, edge_index):
     
-        x = self.embedding.weight  # [num_nodes, emb_dim]
+        x = self.embedding.weight 
         embs = [x]
 
         rows = edge_index[0]
         cols = edge_index[1]
 
-        # degree d(i)
+    
         deg = torch.bincount(rows, minlength=self.num_nodes).float()
         deg_inv_sqrt = deg.pow(-0.5)
         deg_inv_sqrt[deg_inv_sqrt == float("inf")] = 0
@@ -63,15 +60,12 @@ class LightGCN(nn.Module):
         deg_inv_sqrt_cols = deg_inv_sqrt.unsqueeze(1)
 
         for _ in range(self.layers):
-            # wiadomość od u -> v (normalizowana)
-            msg = x[rows] * deg_inv_sqrt_rows  # [E, emb_dim]
+            msg = x[rows] * deg_inv_sqrt_rows  
 
-            # agregacja na node-ach
             agg = torch.zeros_like(x)
             agg.index_add_(0, cols, msg)
 
-            # D^-1/2 z prawej strony
-            x = agg * deg_inv_sqrt_cols  # [num_nodes, emb_dim]
+            x = agg * deg_inv_sqrt_cols 
 
             embs.append(x)
 
@@ -94,14 +88,11 @@ class LightGCN(nn.Module):
         return loss
 
 
-# ============================================================
-#                     Wczytywanie GOODBOOKS
-# ============================================================
+
 def load_goodbooks():
     print(f"📥 Wczytuję dane z {RATINGS_FILE}")
     df = pd.read_csv(RATINGS_FILE)
 
-    # rating >= 3 → implicit positive
     df = df[df["rating"] >= 3]
 
     print(f"✔ Pozytywnych interakcji: {len(df)}")
@@ -120,9 +111,7 @@ def load_goodbooks():
     return df, num_users, num_items
 
 
-# ============================================================
-#                    Negative Sampler
-# ============================================================
+
 class NegativeSampler:
     def __init__(self, num_items):
         self.num_items = num_items

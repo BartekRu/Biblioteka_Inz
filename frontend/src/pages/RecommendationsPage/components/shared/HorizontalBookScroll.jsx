@@ -1,6 +1,4 @@
-/**
- * HorizontalBookScroll.jsx - Horizontal scrollable book list with navigation
- */
+
 
 import React, { useRef } from 'react';
 import { Box, IconButton } from '@mui/material';
@@ -34,7 +32,6 @@ const HorizontalBookScroll = ({
 
   return (
     <Box sx={{ position: 'relative' }}>
-      {/* Scrollable Container */}
       <Box
         ref={scrollRef}
         sx={{
@@ -59,7 +56,6 @@ const HorizontalBookScroll = ({
         ))}
       </Box>
 
-      {/* Navigation Buttons */}
       {books.length > 4 && (
         <>
           <IconButton

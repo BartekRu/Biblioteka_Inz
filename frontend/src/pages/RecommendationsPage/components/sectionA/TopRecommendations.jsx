@@ -1,9 +1,3 @@
-/**
- * TopRecommendations.jsx - SEKCJA A: Główne rekomendacje (LightGCN + MMR)
- *
- * Pokazuje 6-8 najlepszych rekomendacji z pełnego pipeline'u LightGCN → MMR
- */
-
 import React from 'react';
 import { Box, Chip, Paper, Typography } from '@mui/material';
 import { AutoAwesome, Science } from '@mui/icons-material';
@@ -37,19 +31,16 @@ const TopRecommendations = ({ books, loading, mmrEnabled }) => {
     return null;
   }
 
-  // Weź top 8 książek
   const topBooks = books.slice(0, 8);
 
   return (
     <Box sx={pageStyles.sectionContainer}>
-      {/* Section Header */}
       <SectionTitle
         icon={AutoAwesome}
         title="Dla Ciebie - Nasze najlepsze propozycje"
         subtitle="Zbalansowane pod kątem trafności i różnorodności dzięki algorytmowi LightGCN + MMR"
       />
 
-      {/* Info Badge */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
         <Chip
           icon={<Science sx={{ fontSize: 14 }} />}
@@ -72,7 +63,6 @@ const TopRecommendations = ({ books, loading, mmrEnabled }) => {
         />
       </Box>
 
-      {/* Books Carousel */}
       <HorizontalBookScroll
         books={topBooks}
         onBookClick={handleBookClick}
@@ -81,7 +71,6 @@ const TopRecommendations = ({ books, loading, mmrEnabled }) => {
         interactionSource="top-recommendations"
       />
 
-      {/* Explanation Box */}
       <Paper
         sx={{
           mt: 2,

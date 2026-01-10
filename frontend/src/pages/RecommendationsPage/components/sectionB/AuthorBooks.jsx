@@ -49,7 +49,6 @@ const AuthorBooks = ({ authorSections, loading }) => {
 
         if (!books || books.length === 0) return null;
 
-        // Inicjały autora do avatara
         const initials = author
           .split(' ')
           .map((n) => n[0])
@@ -59,7 +58,6 @@ const AuthorBooks = ({ authorSections, loading }) => {
 
         return (
           <Box key={author || idx} sx={pageStyles.sectionContainer}>
-            {/* Section Title z avatarem */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
               <Avatar
                 sx={{
@@ -83,7 +81,6 @@ const AuthorBooks = ({ authorSections, loading }) => {
               </Box>
             </Box>
 
-            {/* Author Stats */}
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
               <Chip
                 icon={<AutoStories sx={{ fontSize: 14 }} />}
@@ -97,7 +94,6 @@ const AuthorBooks = ({ authorSections, loading }) => {
               />
             </Box>
 
-            {/* Books Carousel */}
             <HorizontalBookScroll
               books={books.slice(0, 10)}
               onBookClick={(book) => handleBookClick(book, author)}
@@ -106,7 +102,6 @@ const AuthorBooks = ({ authorSections, loading }) => {
               interactionSource="author-books"
             />
 
-            {/* Explanation - tylko dla pierwszej sekcji */}
             {idx === 0 && (
               <Paper
                 sx={{

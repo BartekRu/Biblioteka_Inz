@@ -1,5 +1,3 @@
-
-
 import { useState, useEffect, useCallback } from 'react';
 import { recommendationsAPI } from '../../../services/api';
 
@@ -14,10 +12,7 @@ export const useGenreRecommendations = (limit = 3, booksPerGenre = 10) => {
 
     try {
       const response = await recommendationsAPI.getByGenre(limit, booksPerGenre);
-      
-      
 
-      // Validate response
       if (!response) {
         throw new Error('Empty response from API');
       }
@@ -34,7 +29,7 @@ export const useGenreRecommendations = (limit = 3, booksPerGenre = 10) => {
         response: err.response?.data,
         status: err.response?.status,
       });
-      
+
       setError(err);
       setData([]);
     } finally {
@@ -54,9 +49,6 @@ export const useGenreRecommendations = (limit = 3, booksPerGenre = 10) => {
   };
 };
 
-/**
- * Hook do pobierania rekomendacji od podobnych czytelników
- */
 export const useSimilarReadersRecommendations = (limit = 15) => {
   const [data, setData] = useState({ books: [], similar_user_count: 0 });
   const [loading, setLoading] = useState(true);
@@ -68,10 +60,7 @@ export const useSimilarReadersRecommendations = (limit = 15) => {
 
     try {
       const response = await recommendationsAPI.getSimilarReaders(limit);
-      
-      
 
-      // Validate response
       if (!response) {
         throw new Error('Empty response from API');
       }
@@ -88,7 +77,7 @@ export const useSimilarReadersRecommendations = (limit = 15) => {
         response: err.response?.data,
         status: err.response?.status,
       });
-      
+
       setError(err);
       setData({ books: [], similar_user_count: 0 });
     } finally {
@@ -110,9 +99,6 @@ export const useSimilarReadersRecommendations = (limit = 15) => {
   };
 };
 
-/**
- * Hook do pobierania rekomendacji według autora
- */
 export const useAuthorRecommendations = (limit = 3, booksPerAuthor = 10) => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -124,8 +110,6 @@ export const useAuthorRecommendations = (limit = 3, booksPerAuthor = 10) => {
 
     try {
       const response = await recommendationsAPI.getByAuthor(limit, booksPerAuthor);
-      
-      
 
       if (!Array.isArray(response)) {
         console.warn('⚠️ Response is not an array, wrapping...', response);
@@ -139,7 +123,7 @@ export const useAuthorRecommendations = (limit = 3, booksPerAuthor = 10) => {
         response: err.response?.data,
         status: err.response?.status,
       });
-      
+
       setError(err);
       setData([]);
     } finally {
@@ -159,16 +143,12 @@ export const useAuthorRecommendations = (limit = 3, booksPerAuthor = 10) => {
   };
 };
 
-/**
- * Debug helper - sprawdź czy API odpowiada
- */
 export const useAPIHealthCheck = () => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkHealth = async () => {
-      
       try {
         const response = await recommendationsAPI.getHealth();
         setStatus(response);

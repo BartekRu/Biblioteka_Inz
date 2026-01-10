@@ -40,13 +40,11 @@ export const recommendationsAPI = {
 
   getModelMetrics: () => api.get('/recommendations/metrics'),
 
-  // 🔐 rekomendacje dla aktualnego użytkownika
   getForMe: (limit = 20) => api.get('/recommendations/user', { params: { limit } }),
 
   getSimilar: (bookId, limit = 8) =>
     api.get(`/recommendations/similar/${bookId}`, { params: { limit } }),
 
-  // 🧠 delegacja do InteractionService
   reportInteraction: (bookId, interactionType, metadata = {}) =>
     api.post('/recommendations/interaction', {
       book_id: bookId,

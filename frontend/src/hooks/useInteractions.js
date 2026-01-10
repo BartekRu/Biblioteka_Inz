@@ -1,13 +1,9 @@
-/**
- * hooks/useInteractions.js
- * React Hooks for managing interactions: view, borrow, review
- */
+
 import { useState } from 'react';
 import axios from 'axios';
 
 const API_URL = 'http://localhost:8000/v1';
 
-// ============ REVIEWS ============
 
 export const useReviews = () => {
   const [loading, setLoading] = useState(false);
@@ -51,7 +47,6 @@ export const useReviews = () => {
   return { addReview, getBookReviews, loading, error };
 };
 
-// ============ LOANS ============
 
 export const useLoans = () => {
   const [loading, setLoading] = useState(false);
@@ -127,13 +122,9 @@ export const useLoans = () => {
   return { borrowBook, returnBook, getMyLoans, loading, error };
 };
 
-// ============ VIEWS ============
 
 export const useViews = () => {
-  /**
-   * Rejestruje wyświetlenie książki (waga 0.3)
-   * Wywołaj w useEffect gdy user otwiera BookDetails
-   */
+
   const registerView = async (bookId) => {
     try {
       const token = localStorage.getItem('token');

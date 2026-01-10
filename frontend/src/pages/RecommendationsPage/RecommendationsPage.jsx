@@ -6,22 +6,17 @@ import { useAuth } from '../../context/AuthContext';
 import { useRecommendations } from '../../context/RecommendationsContext';
 import { recommendationsAPI } from '../../services/api';
 
-// Styles & Utils
 import { COLORS, pageStyles } from './styles/theme';
 
-// Controls
 import MMRControlPanel from './components/controls/MMRControlPanel';
 
-// Section A
 import TopRecommendations from './components/sectionA/TopRecommendations';
 
-// Section B
 import BecauseYouBorrowed from './components/sectionB/BecauseYouBorrowed';
 import GenreRecommendations from './components/sectionB/GenreRecommendations';
 import AuthorBooks from './components/sectionB/AuthorBooks';
 import SimilarReaders from './components/sectionB/SimilarReaders';
 
-// Section C
 import DiverseDiscovery from './components/sectionC/DiverseDiscovery';
 import NewArrivals from './components/sectionC/NewArrivals';
 import HiddenGems from './components/sectionC/HiddenGems';
@@ -33,21 +28,14 @@ const RecommendationsPage = () => {
   const { refreshTrigger } = useRecommendations();
   const prevTriggerRef = useRef(refreshTrigger);
 
-  // ============================================================================
-  // STATE MANAGEMENT
-  // ============================================================================
-
-  // Loading & Error
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // MMR Settings
   const [mmrEnabled, setMmrEnabled] = useState(true);
   const [lambdaValue, setLambdaValue] = useState(0.7);
   const [authorLimit, setAuthorLimit] = useState(true);
   const maxPerAuthor = 2;
 
-  // Data for different sections
   const [topRecommendations, setTopRecommendations] = useState([]);
   const [diversityMetrics, setDiversityMetrics] = useState(null);
   const [becauseSections, setBecauseSections] = useState([]);
@@ -58,18 +46,11 @@ const RecommendationsPage = () => {
   const [diverseBooks, setDiverseBooks] = useState([]);
   const [newArrivals, setNewArrivals] = useState([]);
 
-  // 🆕 NOWE STATE dla Hidden Gems i Highly Rated
   const [hiddenGems, setHiddenGems] = useState([]);
   const [highlyRated, setHighlyRated] = useState([]);
 
-  // Model metadata
   const [modelMetrics, setModelMetrics] = useState(null);
 
-  // ============================================================================
-  // EFFECTS
-  // ============================================================================
-
-  // Reaguj na zmiany refreshTrigger z kontekstu
   useEffect(() => {
     if (prevTriggerRef.current !== refreshTrigger) {
       prevTriggerRef.current = refreshTrigger;
@@ -79,16 +60,11 @@ const RecommendationsPage = () => {
     }
   }, [refreshTrigger, user]);
 
-  // Fetch recommendations przy zmianie MMR settings
   useEffect(() => {
     if (user) {
       fetchAllRecommendations();
     }
   }, [user, mmrEnabled, lambdaValue, authorLimit]);
-
-  // ============================================================================
-  // DATA FETCHING
-  // ============================================================================
 
   const fetchAllRecommendations = useCallback(async () => {
     if (!user) {
@@ -100,9 +76,6 @@ const RecommendationsPage = () => {
       setLoading(true);
       setError(null);
 
-      
-
-      // 🔧 POPRAWIONE - Parallel fetch wszystkich sekcji
       const [
         topRecsRes,
         becauseRes,
@@ -111,11 +84,10 @@ const RecommendationsPage = () => {
         similarReadersRes,
         diverseRes,
         newArrivalsRes,
-        hiddenGemsRes, // 🆕 DODANE
-        highlyRatedRes, // 🆕 DODANE
+        hiddenGemsRes,
+        highlyRatedRes,
         metricsRes,
       ] = await Promise.allSettled([
-        // SEKCJA A: Top recommendations
         recommendationsAPI.getUserLightGCN(
           30,
           0,
@@ -125,35 +97,25 @@ const RecommendationsPage = () => {
           maxPerAuthor
         ),
 
-        // SEKCJA B: Because you borrowed
         recommendationsAPI.getBecauseYouBorrowed(),
 
-        // SEKCJA B: Genre recommendations
         recommendationsAPI.getGenreRecommendations(),
 
-        // SEKCJA B: Author recommendations
         recommendationsAPI.getAuthorRecommendations(),
 
-        // SEKCJA B: Similar readers
         recommendationsAPI.getSimilarReadersBooks(),
 
-        // SEKCJA C: Diverse discovery (MMR z niskim λ)
         recommendationsAPI.getUserLightGCN(10, 0, true, 0.3, true, maxPerAuthor),
 
-        // SEKCJA C: New arrivals
         recommendationsAPI.getNewArrivals(),
 
-        // 🆕 SEKCJA C: Hidden Gems
         recommendationsAPI.getHiddenGems(),
 
-        // 🆕 SEKCJA C: Highly Rated
         recommendationsAPI.getHighlyRated(),
 
-        // Model metrics
         recommendationsAPI.getModelMetrics(),
       ]);
 
-      // Process SEKCJA A
       if (topRecsRes.status === 'fulfilled') {
         const data = topRecsRes.value.data;
         const recs = data.recommendations || (Array.isArray(data) ? data : []);
@@ -163,10 +125,8 @@ const RecommendationsPage = () => {
         if (metadata.diversity_metrics) {
           setDiversityMetrics(metadata.diversity_metrics);
         }
-
       }
 
-      // Process SEKCJA B
       if (becauseRes.status === 'fulfilled') {
         const sections = becauseRes.value.data || [];
         setBecauseSections(sections);
@@ -188,7 +148,6 @@ const RecommendationsPage = () => {
         setSimilarUserCount(data.similar_user_count || 0);
       }
 
-      // Process SEKCJA C
       if (diverseRes.status === 'fulfilled') {
         const data = diverseRes.value.data;
         const recs = data.recommendations || (Array.isArray(data) ? data : []);
@@ -200,7 +159,6 @@ const RecommendationsPage = () => {
         setNewArrivals(books);
       }
 
-      // 🆕 Process Hidden Gems
       if (hiddenGemsRes.status === 'fulfilled') {
         const books = hiddenGemsRes.value.data || [];
         setHiddenGems(books);
@@ -208,7 +166,6 @@ const RecommendationsPage = () => {
         console.warn('⚠️ Hidden Gems endpoint failed:', hiddenGemsRes.reason);
       }
 
-      // 🆕 Process Highly Rated
       if (highlyRatedRes.status === 'fulfilled') {
         const books = highlyRatedRes.value.data || [];
         setHighlyRated(books);
@@ -216,7 +173,6 @@ const RecommendationsPage = () => {
         console.warn('⚠️ Highly Rated endpoint failed:', highlyRatedRes.reason);
       }
 
-      // Process model metrics
       if (metricsRes.status === 'fulfilled') {
         setModelMetrics(metricsRes.value.data);
       }
@@ -228,10 +184,6 @@ const RecommendationsPage = () => {
     }
   }, [user, navigate, mmrEnabled, lambdaValue, authorLimit]);
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-
   if (!user) {
     return null;
   }
@@ -239,9 +191,6 @@ const RecommendationsPage = () => {
   return (
     <Box sx={pageStyles.mainContainer}>
       <Container maxWidth="lg">
-        {/* ====================================================================
-            HEADER
-        ==================================================================== */}
         <Box
           sx={{
             display: 'flex',
@@ -283,16 +232,12 @@ const RecommendationsPage = () => {
           </Button>
         </Box>
 
-        {/* Error Alert */}
         {error && (
           <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
 
-        {/* ====================================================================
-            MMR CONTROL PANEL
-        ==================================================================== */}
         <MMRControlPanel
           mmrEnabled={mmrEnabled}
           onMmrToggle={setMmrEnabled}
@@ -305,16 +250,10 @@ const RecommendationsPage = () => {
           loading={loading}
         />
 
-        {/* ====================================================================
-            SEKCJA A: GŁÓWNE REKOMENDACJE
-        ==================================================================== */}
         <TopRecommendations books={topRecommendations} loading={loading} mmrEnabled={mmrEnabled} />
 
         <Divider sx={{ my: 6, borderColor: COLORS.bgMedium }} />
 
-        {/* ====================================================================
-            SEKCJA B: REKOMENDACJE WYJAŚNIALNE
-        ==================================================================== */}
         <Typography
           variant="h5"
           sx={{
@@ -344,9 +283,6 @@ const RecommendationsPage = () => {
 
         <Divider sx={{ my: 6, borderColor: COLORS.bgMedium }} />
 
-        {/* ====================================================================
-            SEKCJA C: ODKRYWANIE
-        ==================================================================== */}
         <Typography
           variant="h5"
           sx={{
@@ -362,14 +298,10 @@ const RecommendationsPage = () => {
 
         <NewArrivals books={newArrivals} loading={loading} />
 
-        {/* 🆕 NOWE SEKCJE */}
         <HiddenGems books={hiddenGems} loading={loading} />
 
         <HighlyRated books={highlyRated} minRating={4.5} loading={loading} />
 
-        {/* ====================================================================
-            FOOTER INFO
-        ==================================================================== */}
         <Box
           sx={{
             textAlign: 'center',

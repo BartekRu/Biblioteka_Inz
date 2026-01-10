@@ -1,10 +1,3 @@
-/**
- * HighlyRated.jsx - SEKCJA C: "Wysoko oceniane odkrycia" 🆕
- *
- * Top-rated książki (≥4.5/5.0) w ulubionych gatunkach użytkownika
- * + personalizacja przez LightGCN reranking
- */
-
 import React from 'react';
 import { Box, Chip, Paper, Typography, LinearProgress } from '@mui/material';
 import { Star, TrendingUp, Verified } from '@mui/icons-material';
@@ -37,11 +30,9 @@ const HighlyRated = ({ books, minRating = 4.5, loading }) => {
     return null;
   }
 
-  // Oblicz średnią ocenę
   const avgRating =
     books.reduce((sum, b) => sum + (b.average_rating || b.averageRating || 0), 0) / books.length;
 
-  // Znajdź najwyżej ocenioną książkę
   const topRated = books.reduce((max, book) => {
     const rating = book.average_rating || book.averageRating || 0;
     const maxRating = max.average_rating || max.averageRating || 0;
@@ -52,14 +43,12 @@ const HighlyRated = ({ books, minRating = 4.5, loading }) => {
 
   return (
     <Box sx={pageStyles.sectionContainer}>
-      {/* Section Title */}
       <SectionTitle
         icon={Star}
         title="Wysoko oceniane odkrycia"
         subtitle={`Najlepsze książki według czytelników (≥${minRating}/5.0)`}
       />
 
-      {/* Quality Indicators */}
       <Box sx={{ mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
           <Chip
@@ -94,7 +83,6 @@ const HighlyRated = ({ books, minRating = 4.5, loading }) => {
           />
         </Box>
 
-        {/* Quality Bar */}
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
             <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
@@ -119,7 +107,6 @@ const HighlyRated = ({ books, minRating = 4.5, loading }) => {
         </Box>
       </Box>
 
-      {/* Books Carousel */}
       <HorizontalBookScroll
         books={books.slice(0, 15)}
         onBookClick={handleBookClick}
@@ -128,7 +115,6 @@ const HighlyRated = ({ books, minRating = 4.5, loading }) => {
         interactionSource="highly-rated"
       />
 
-      {/* Explanation */}
       <Paper
         sx={{
           mt: 2,

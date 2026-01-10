@@ -35,7 +35,6 @@ import {
   Send,
   Delete,
 } from '@mui/icons-material';
-// Poprawione ścieżki importów dla lokalizacji pages/BookCatalog/
 import { booksAPI, loansAPI, reviewsAPI } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import recommendationsAPI from '../../services/recommendationsAPI';
@@ -46,25 +45,20 @@ const BookDetails = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth();
   const { invalidateRecommendations } = useRecommendations();
-  
 
-  // Stan książki
   const [book, setBook] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Stan wypożyczenia
   const [borrowing, setBorrowing] = useState(false);
   const [borrowDialog, setBorrowDialog] = useState(false);
   const [borrowSuccess, setBorrowSuccess] = useState(false);
 
-  // Stan recenzji
   const [reviews, setReviews] = useState([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
   const [newReview, setNewReview] = useState({ rating: 0, content: '' });
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
@@ -81,7 +75,6 @@ const BookDetails = () => {
     reportView();
   }, [book?._id]);
 
-  // Pobierz dane książki
   useEffect(() => {
     const fetchBook = async () => {
       try {
@@ -99,7 +92,6 @@ const BookDetails = () => {
     fetchBook();
   }, [id]);
 
-  // Pobierz recenzje
   useEffect(() => {
     const fetchReviews = async () => {
       try {
@@ -108,7 +100,6 @@ const BookDetails = () => {
         setReviews(response.data);
       } catch (err) {
         console.error('Error fetching reviews:', err);
-        // Nie pokazuj błędu - po prostu pusta lista
       } finally {
         setReviewsLoading(false);
       }
@@ -117,7 +108,6 @@ const BookDetails = () => {
     if (id) fetchReviews();
   }, [id]);
 
-  // Wypożycz książkę
   const handleBorrow = async () => {
     if (!isAuthenticated) {
       navigate('/login', { state: { from: `/books/${id}` } });
@@ -146,14 +136,11 @@ const BookDetails = () => {
       });
     } catch (err) {
       console.error('❌ Error in handleBorrow:', err);
-      // ... error handling ...
     } finally {
       setBorrowing(false);
     }
   };
 
-  // Dodaj recenzję
-  // Dodaj recenzję
   const handleSubmitReview = async (e) => {
     e.preventDefault();
 
@@ -174,12 +161,7 @@ const BookDetails = () => {
     try {
       setSubmittingReview(true);
 
-      // ✅ POPRAWKA: Upewnij się że wysyłamy prawidłowy format
-      const response = await reviewsAPI.create(
-        id, // book_id jako parametr
-        newReview.rating, // rating
-        newReview.content // content (może być pusty string)
-      );
+      const response = await reviewsAPI.create(id, newReview.rating, newReview.content);
 
       setReviews([response.data, ...reviews]);
       setNewReview({ rating: 0, content: '' });
@@ -191,19 +173,16 @@ const BookDetails = () => {
         severity: 'success',
       });
 
-      // Odśwież książkę (średnia ocen mogła się zmienić)
       const bookResponse = await booksAPI.getById(id);
       setBook(bookResponse.data);
     } catch (err) {
       console.error('Error submitting review:', err);
 
-      // ✅ POPRAWKA: Prawidłowa obsługa błędów walidacji
       let errorMessage = 'Nie udało się dodać recenzji';
 
       if (err.response?.data?.detail) {
         const detail = err.response.data.detail;
 
-        // Jeśli detail to array (błędy walidacji Pydantic)
         if (Array.isArray(detail)) {
           errorMessage = detail
             .map((error) => {
@@ -212,13 +191,9 @@ const BookDetails = () => {
               return `${field}: ${msg}`;
             })
             .join(', ');
-        }
-        // Jeśli detail to string
-        else if (typeof detail === 'string') {
+        } else if (typeof detail === 'string') {
           errorMessage = detail;
-        }
-        // Jeśli detail to obiekt
-        else {
+        } else {
           errorMessage = JSON.stringify(detail);
         }
       }
@@ -232,7 +207,6 @@ const BookDetails = () => {
       setSubmittingReview(false);
     }
   };
-  // Usuń recenzję
   const handleDeleteReview = async (reviewId) => {
     try {
       await reviewsAPI.delete(reviewId);
@@ -252,7 +226,6 @@ const BookDetails = () => {
     }
   };
 
-  // Placeholder image
   const getBookImage = () => {
     if (book?.image_url) return book.image_url;
     if (book?.cover_image) return book.cover_image;
@@ -282,13 +255,11 @@ const BookDetails = () => {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {/* Przycisk powrotu */}
       <Button startIcon={<ArrowBack />} onClick={() => navigate('/books')} sx={{ mb: 3 }}>
         Powrót do katalogu
       </Button>
 
       <Grid container spacing={4}>
-        {/* Lewa kolumna - okładka */}
         <Grid item xs={12} md={4}>
           <Paper
             elevation={3}
@@ -308,7 +279,6 @@ const BookDetails = () => {
             {!getBookImage() && <MenuBook sx={{ fontSize: 100, color: 'rgba(255,255,255,0.5)' }} />}
           </Paper>
 
-          {/* Przycisk wypożyczenia */}
           <Box sx={{ mt: 2 }}>
             <Button
               variant="contained"
@@ -328,15 +298,12 @@ const BookDetails = () => {
           </Box>
         </Grid>
 
-        {/* Prawa kolumna - szczegóły */}
         <Grid item xs={12} md={8}>
           <Paper sx={{ p: 3 }}>
-            {/* Tytuł */}
             <Typography variant="h4" component="h1" gutterBottom>
               {book.title}
             </Typography>
 
-            {/* Autor */}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Person sx={{ mr: 1, color: 'text.secondary' }} />
               <Typography variant="h6" color="text.secondary">
@@ -344,7 +311,6 @@ const BookDetails = () => {
               </Typography>
             </Box>
 
-            {/* Rating */}
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
               <Rating value={book.average_rating || 0} precision={0.1} readOnly />
               <Typography variant="body1" sx={{ ml: 1 }}>
@@ -355,7 +321,6 @@ const BookDetails = () => {
               </Typography>
             </Box>
 
-            {/* Gatunki */}
             <Box sx={{ mb: 3 }}>
               {(book.genre || []).map((genre, index) => (
                 <Chip
@@ -370,7 +335,6 @@ const BookDetails = () => {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Szczegóły */}
             <Grid container spacing={2}>
               {book.publication_year && (
                 <Grid item xs={6} sm={4}>
@@ -454,7 +418,6 @@ const BookDetails = () => {
               )}
             </Grid>
 
-            {/* Opis */}
             {book.description && (
               <>
                 <Divider sx={{ my: 2 }} />
@@ -470,14 +433,12 @@ const BookDetails = () => {
         </Grid>
       </Grid>
 
-      {/* Sekcja recenzji */}
       <Paper sx={{ p: 3, mt: 4 }}>
         <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
           <Star sx={{ mr: 1 }} />
           Recenzje ({reviews.length})
         </Typography>
 
-        {/* Formularz nowej recenzji */}
         {isAuthenticated && (
           <Card sx={{ mb: 3, bgcolor: 'grey.50' }}>
             <CardContent>
@@ -526,7 +487,6 @@ const BookDetails = () => {
           </Alert>
         )}
 
-        {/* Lista recenzji */}
         {reviewsLoading ? (
           <CircularProgress />
         ) : reviews.length === 0 ? (
@@ -557,7 +517,6 @@ const BookDetails = () => {
                       </Box>
                     </Box>
 
-                    {/* Przycisk usunięcia (jeśli to recenzja użytkownika) */}
                     {user && (review.user_id === user._id || review.user_id === user.id) && (
                       <IconButton
                         size="small"
@@ -593,7 +552,6 @@ const BookDetails = () => {
         )}
       </Paper>
 
-      {/* Dialog potwierdzenia wypożyczenia */}
       <Dialog open={borrowDialog} onClose={() => setBorrowDialog(false)}>
         <DialogTitle>Potwierdź wypożyczenie</DialogTitle>
         <DialogContent>
@@ -610,7 +568,6 @@ const BookDetails = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}

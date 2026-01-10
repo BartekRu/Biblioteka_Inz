@@ -44,7 +44,6 @@ const BecauseYouBorrowed = ({ sections, loading }) => {
 
         return (
           <Box key={sourceBook._id || idx} sx={pageStyles.sectionContainer}>
-            {/* Section Title with source book */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
               <Box
                 component="img"
@@ -75,7 +74,6 @@ const BecauseYouBorrowed = ({ sections, loading }) => {
               </Box>
             </Box>
 
-            {/* Books Carousel */}
             <HorizontalBookScroll
               books={recommendations}
               onBookClick={(book) => handleBookClick(book, sourceBook._id)}
@@ -84,7 +82,6 @@ const BecauseYouBorrowed = ({ sections, loading }) => {
               interactionSource="because-borrowed"
             />
 
-            {/* Explanation */}
             {idx === 0 && (
               <Paper
                 sx={{

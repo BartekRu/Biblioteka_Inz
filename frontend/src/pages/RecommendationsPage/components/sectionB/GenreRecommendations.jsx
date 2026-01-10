@@ -1,8 +1,3 @@
-/**
- * GenreRecommendations.jsx - POPRAWIONA WERSJA
- * SEKCJA B: "Dla miłośników gatunku..."
- */
-
 import React, { useEffect } from 'react';
 import { Box, Chip, Paper, Typography, Alert } from '@mui/material';
 import { Category, FilterList, Warning } from '@mui/icons-material';
@@ -16,10 +11,7 @@ import { recommendationsAPI } from '../../../../services/api';
 const GenreRecommendations = ({ genreSections, loading, error }) => {
   const navigate = useNavigate();
 
-  
-
   const handleBookClick = async (book, genre) => {
-
     try {
       await recommendationsAPI.reportInteraction(book._id, 'view', {
         source: 'genre-recommendations',
@@ -36,7 +28,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
     navigate(`/books?genre=${genre}`);
   };
 
-  // Loading state
   if (loading) {
     return (
       <Box sx={pageStyles.sectionContainer}>
@@ -45,7 +36,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
     );
   }
 
-  // Error state
   if (error) {
     console.error('❌ GenreRecommendations: Error state:', error);
     return (
@@ -59,11 +49,9 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
     );
   }
 
-  // Empty data state
   if (!genreSections || genreSections.length === 0) {
     console.warn('⚠️ GenreRecommendations: No sections to display');
 
-    // Pokaż info zamiast nic nie renderować
     return (
       <Box sx={pageStyles.sectionContainer}>
         <Alert severity="info" icon={<Category />}>
@@ -76,13 +64,11 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
     );
   }
 
-
   return (
     <>
       {genreSections.map((section, idx) => {
         const { genre, books, user_preference_score } = section;
 
-        // Validation
         if (!genre) {
           console.warn('⚠️ Section without genre:', section);
           return null;
@@ -93,10 +79,8 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
           return null;
         }
 
-
         return (
           <Box key={genre || idx} sx={pageStyles.sectionContainer}>
-            {/* Section Title */}
             <SectionTitle
               icon={Category}
               title={`Dla miłośników gatunku: ${genre}`}
@@ -105,7 +89,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
               subtitle="Filtrowane przez gatunek + personalizacja LightGCN"
             />
 
-            {/* Genre Badge */}
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
               <Chip
                 icon={<FilterList sx={{ fontSize: 14 }} />}
@@ -130,7 +113,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
               )}
             </Box>
 
-            {/* Books Carousel */}
             <HorizontalBookScroll
               books={books.slice(0, 10)}
               onBookClick={(book) => handleBookClick(book, genre)}
@@ -139,7 +121,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
               interactionSource="genre-recommendations"
             />
 
-            {/* Explanation - tylko dla pierwszej sekcji */}
             {idx === 0 && (
               <Paper
                 sx={{

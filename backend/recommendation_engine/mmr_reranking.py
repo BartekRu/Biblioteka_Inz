@@ -1,8 +1,3 @@
-"""
-MMR (Maximal Marginal Relevance) Re-ranking Module
-Dodaje różnorodność do rekomendacji LightGCN poprzez balansowanie trafności i różnorodności.
-"""
-
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 import logging
@@ -11,16 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
-    """
-    Oblicza podobieństwo cosinusowe między dwoma wektorami.
 
-    Args:
-        vec1: Pierwszy wektor (embedding książki)
-        vec2: Drugi wektor (embedding książki)
-
-    Returns:
-        float: Podobieństwo w zakresie [0, 1]
-    """
     dot_product = np.dot(vec1, vec2)
     norm1 = np.linalg.norm(vec1)
     norm2 = np.linalg.norm(vec2)
@@ -29,28 +15,17 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
         return 0.0
 
     similarity = dot_product / (norm1 * norm2)
-    # Normalizuj do zakresu [0, 1]
     return (similarity + 1) / 2
 
 
 def genre_diversity_score(book1: Dict, book2: Dict) -> float:
-    """
-    Oblicza score różnorodności gatunkowej między dwoma książkami.
 
-    Args:
-        book1: Słownik z informacjami o książce (musi mieć klucz 'genre')
-        book2: Słownik z informacjami o książce (musi mieć klucz 'genre')
-
-    Returns:
-        float: 0.0 jeśli gatunki są identyczne, 1.0 jeśli całkowicie różne
-    """
     genres1 = set(book1.get("genre", []) or [])
     genres2 = set(book2.get("genre", []) or [])
 
     if not genres1 or not genres2:
-        return 0.5  # Neutralny score jeśli brak gatunków
+        return 0.5
 
-    # Współczynnik Jaccarda
     intersection = len(genres1 & genres2)
     union = len(genres1 | genres2)
 
@@ -58,32 +33,21 @@ def genre_diversity_score(book1: Dict, book2: Dict) -> float:
         return 0.5
 
     jaccard = intersection / union
-    # Odwróć: im mniejsze podobieństwo, tym większa różnorodność
     return 1.0 - jaccard
 
 
 def author_diversity_score(book1: Dict, book2: Dict) -> float:
-    """
-    Oblicza score różnorodności autorskiej między dwoma książkami.
 
-    Args:
-        book1: Słownik z informacjami o książce (musi mieć klucz 'authors')
-        book2: Słownik z informacjami o książce (musi mieć klucz 'authors')
-
-    Returns:
-        float: 0.0 jeśli ten sam autor, 1.0 jeśli różni autorzy
-    """
     authors1 = set(book1.get("authors", []) or [])
     authors2 = set(book2.get("authors", []) or [])
 
     if not authors1 or not authors2:
         return 0.5
 
-    # Sprawdź czy mają wspólnych autorów
     if authors1 & authors2:
-        return 0.0  # Ten sam autor = brak różnorodności
+        return 0.0
 
-    return 1.0  # Różni autorzy = pełna różnorodność
+    return 1.0
 
 
 def calculate_similarity(
@@ -92,22 +56,10 @@ def calculate_similarity(
     embeddings_dict: Optional[Dict[str, np.ndarray]] = None,
     use_content_similarity: bool = True,
 ) -> float:
-    """
-    Oblicza łączne podobieństwo między dwiema książkami.
 
-    Args:
-        book1: Pierwsza książka
-        book2: Druga książka
-        embeddings_dict: Słownik {book_id: embedding} z modelu LightGCN
-        use_content_similarity: Czy uwzględnić podobieństwo treści (gatunki, autorzy)
-
-    Returns:
-        float: Współczynnik podobieństwa [0, 1]
-    """
     similarity_scores = []
     weights = []
 
-    # 1. Podobieństwo embeddingów z LightGCN (najważniejsze - waga 0.6)
     if embeddings_dict:
         book1_id = str(book1.get("_id"))
         book2_id = str(book2.get("_id"))
@@ -117,21 +69,18 @@ def calculate_similarity(
             similarity_scores.append(emb_sim)
             weights.append(0.6)
 
-    # 2. Podobieństwo gatunkowe (waga 0.25)
     if use_content_similarity:
         genre_sim = 1.0 - genre_diversity_score(book1, book2)
         similarity_scores.append(genre_sim)
         weights.append(0.25)
 
-        # 3. Podobieństwo autorskie (waga 0.15)
         author_sim = 1.0 - author_diversity_score(book1, book2)
         similarity_scores.append(author_sim)
         weights.append(0.15)
 
     if not similarity_scores:
-        return 0.5  # Domyślny score jeśli brak danych
+        return 0.5
 
-    # Weighted average
     total_weight = sum(weights)
     weighted_sim = sum(s * w for s, w in zip(similarity_scores, weights)) / total_weight
 
@@ -147,27 +96,7 @@ def mmr_rerank(
     enforce_author_limit: bool = True,
     max_per_author: int = 2,
 ) -> List[Dict]:
-    """
-    Wykonuje MMR re-ranking rekomendacji.
 
-    Formula MMR:
-        score = λ * relevance - (1-λ) * max_similarity_to_selected
-
-    Args:
-        candidates: Lista książek z już obliczonym 'score' z LightGCN
-        n: Ile książek zwrócić po re-rankingu
-        lambda_param: Balans między trafnością (1.0) a różnorodnością (0.0)
-                     - 1.0 = tylko trafność (ignoruj różnorodność)
-                     - 0.5 = równowaga
-                     - 0.0 = tylko różnorodność (ignoruj trafność)
-        embeddings_dict: Słownik {book_id: embedding} z modelu
-        use_content_similarity: Czy uwzględnić gatunki/autorów w podobieństwie
-        enforce_author_limit: Czy ograniczać liczbę książek tego samego autora
-        max_per_author: Max książek od jednego autora w finalnej liście
-
-    Returns:
-        List[Dict]: Lista n książek po re-rankingu
-    """
     if not candidates:
         logger.warning("❌ MMR: brak kandydatów do re-rankingu")
         return []
@@ -181,7 +110,6 @@ def mmr_rerank(
         f"λ={lambda_param:.2f}, author_limit={max_per_author if enforce_author_limit else 'off'}"
     )
 
-    # Normalizuj scores z LightGCN do [0, 1]
     scores = [c.get("score", 0.0) for c in candidates]
     if scores:
         min_score = min(scores)
@@ -208,10 +136,8 @@ def mmr_rerank(
         best_idx = None
 
         for idx, candidate in enumerate(remaining):
-            # 1. Trafność (relevance)
             relevance = candidate.get("normalized_score", 0.5)
 
-            # 2. Maksymalne podobieństwo do już wybranych
             if not selected:
                 max_similarity = 0.0
             else:
@@ -226,21 +152,17 @@ def mmr_rerank(
                 ]
                 max_similarity = max(similarities) if similarities else 0.0
 
-            # 3. MMR score
             mmr_score = lambda_param * relevance - (1 - lambda_param) * max_similarity
 
-            # 4. Penalty dla przekroczenia limitu autora
             if enforce_author_limit:
                 authors = candidate.get("authors", []) or []
                 if authors:
-                    author = authors[0]  # Weź pierwszego autora
+                    author = authors[0]
                     current_count = author_counts.get(author, 0)
 
                     if current_count >= max_per_author:
-                        # Silne penalty (może zostać wybrany tylko jeśli bardzo dobry MMR)
                         mmr_score *= 0.3
 
-            # 5. Sprawdź czy to najlepszy kandydat
             if mmr_score > best_mmr_score:
                 best_mmr_score = mmr_score
                 best_idx = idx
@@ -249,11 +171,9 @@ def mmr_rerank(
             logger.warning(f"⚠️ MMR: nie znaleziono kandydata w iteracji {iteration}")
             break
 
-        # Dodaj najlepszego kandydata
         chosen = remaining.pop(best_idx)
         selected.append(chosen)
 
-        # Aktualizuj licznik autorów
         if enforce_author_limit:
             authors = chosen.get("authors", []) or []
             if authors:
@@ -266,7 +186,6 @@ def mmr_rerank(
                 f"(MMR={best_mmr_score:.3f}, relevance={chosen.get('normalized_score', 0):.3f})"
             )
 
-    # Dodaj metadane do wyniku
     for i, book in enumerate(selected):
         book["mmr_rank"] = i + 1
         book["diversified"] = True
@@ -282,33 +201,13 @@ def mmr_rerank(
 def apply_mmr_with_offset(
     candidates: List[Dict], n: int = 10, offset: int = 0, lambda_param: float = 0.7, **mmr_kwargs
 ) -> Tuple[List[Dict], int]:
-    """
-    Stosuje MMR z offsetem dla rotacji rekomendacji.
 
-    Strategia:
-    1. Generuj 3x więcej wyników niż potrzeba (n * 3)
-    2. Zastosuj offset
-    3. Zwróć n wyników
-
-    Args:
-        candidates: Lista kandydatów
-        n: Ile książek zwrócić
-        offset: Przesunięcie (dla rotacji)
-        lambda_param: Parametr MMR
-        **mmr_kwargs: Dodatkowe argumenty dla mmr_rerank
-
-    Returns:
-        Tuple[List[Dict], int]: (lista książek, next_offset)
-    """
-    # Generuj 3x więcej dla bufora
     fetch_n = min(n * 3 + offset, len(candidates))
 
     logger.info(f"📊 MMR offset: generuję {fetch_n} wyników, offset={offset}, zwracam {n}")
 
-    # Wykonaj MMR na większej liczbie
     diversified = mmr_rerank(candidates, n=fetch_n, lambda_param=lambda_param, **mmr_kwargs)
 
-    # Zastosuj offset
     result = diversified[offset : offset + n]
     next_offset = offset + n
 
@@ -317,26 +216,11 @@ def apply_mmr_with_offset(
     return result, next_offset
 
 
-# ============================================================================
-# FUNKCJE POMOCNICZE DO INTEGRACJI Z LIGHTGCN
-# ============================================================================
-
-
 def extract_book_embeddings_from_model(model, book_ids: List[str]) -> Dict[str, np.ndarray]:
-    """
-    Wyciąga embeddingi książek z wytrenowanego modelu LightGCN.
 
-    Args:
-        model: Wytrenowany model LightGCN
-        book_ids: Lista book_id (MongoDB ObjectId jako string)
-
-    Returns:
-        Dict[book_id: embedding]
-    """
     embeddings_dict = {}
 
     try:
-        # Zakładam, że model ma mapowanie book_id_str -> internal_id
         if hasattr(model, "book_id_map"):
             for book_id in book_ids:
                 if book_id in model.book_id_map:
@@ -353,20 +237,7 @@ def extract_book_embeddings_from_model(model, book_ids: List[str]) -> Dict[str, 
 
 
 def diversity_metrics(books: List[Dict]) -> Dict[str, float]:
-    """
-    Oblicza metryki różnorodności dla listy książek.
 
-    Args:
-        books: Lista książek
-
-    Returns:
-        Dict z metrykami:
-        - unique_genres: Liczba unikalnych gatunków
-        - unique_authors: Liczba unikalnych autorów
-        - genre_entropy: Entropia rozkładu gatunków
-        - author_entropy: Entropia rozkładu autorów
-        - avg_pairwise_dissimilarity: Średnia różnica między parami
-    """
     from collections import Counter
 
     all_genres = []
@@ -386,7 +257,6 @@ def diversity_metrics(books: List[Dict]) -> Dict[str, float]:
         probs = [c / total for c in counts.values()]
         return -sum(p * np.log2(p) for p in probs if p > 0)
 
-    # Średnia różnica między parami
     pairwise_diffs = []
     for i in range(len(books)):
         for j in range(i + 1, len(books)):
@@ -405,12 +275,7 @@ def diversity_metrics(books: List[Dict]) -> Dict[str, float]:
     }
 
 
-# ============================================================================
-# PRZYKŁAD UŻYCIA
-# ============================================================================
-
 if __name__ == "__main__":
-    # Przykładowe dane testowe
     sample_candidates = [
         {
             "_id": "1",

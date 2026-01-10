@@ -1,10 +1,3 @@
-/**
- * SimilarReaders.jsx - SEKCJA B: "Popularne wśród Twoich czytelniczych bliźniaków"
- *
- * Bezpośrednia demonstracja user-based collaborative filtering z LightGCN
- * Pokazuje użytkownikom "Kim są ich podobni czytelnicy" (anonimowo)
- */
-
 import React from 'react';
 import { Box, Chip, Paper, Typography, Avatar, AvatarGroup, Alert } from '@mui/material';
 import { PeopleAlt, Psychology, TrendingUp, Warning } from '@mui/icons-material';
@@ -39,10 +32,9 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
         <Typography>Nie znaleziono podobnych czytelników.</Typography>
         <Typography variant="caption">💡 Im więcej książek wypożyczysz, tym lepiej!</Typography>
       </Alert>
-    ); // ✅ NOWE
+    );
   }
 
-  // Losowe kolory dla avatarów (reprezentują anonimowych użytkowników)
   const avatarColors = [
     COLORS.accent,
     COLORS.successGreen,
@@ -53,7 +45,6 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
 
   return (
     <Box sx={pageStyles.sectionContainer}>
-      {/* Section Title */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
         <AvatarGroup max={4} sx={{ ml: 1 }}>
           {avatarColors.slice(0, Math.min(similarUserCount || 3, 4)).map((color, idx) => (
@@ -81,7 +72,6 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
         </Box>
       </Box>
 
-      {/* Stats Chips */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
         <Chip
           icon={<Psychology sx={{ fontSize: 14 }} />}
@@ -105,7 +95,6 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
         />
       </Box>
 
-      {/* Books Carousel */}
       <HorizontalBookScroll
         books={books.slice(0, 10)}
         onBookClick={handleBookClick}
@@ -114,7 +103,6 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
         interactionSource="similar-readers"
       />
 
-      {/* Explanation */}
       <Paper
         sx={{
           mt: 2,

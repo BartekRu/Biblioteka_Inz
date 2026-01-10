@@ -1,9 +1,3 @@
-/**
- * DiverseDiscovery.jsx - SEKCJA C: "Odkryj coś nowego - poza Twoją bańką"
- *
- * Sekcja celowo zdywersyfikowana, z naciskiem na MMR z niskim λ (większa różnorodność)
- */
-
 import React from 'react';
 import { Box, Chip, Paper, Typography, LinearProgress } from '@mui/material';
 import { Explore, Casino, AutoAwesome } from '@mui/icons-material';
@@ -36,19 +30,16 @@ const DiverseDiscovery = ({ books, diversityScore, loading }) => {
     return null;
   }
 
-  // Domyślny diversity score jeśli nie podany
   const diversity = diversityScore || 0.75;
 
   return (
     <Box sx={pageStyles.sectionContainer}>
-      {/* Section Title */}
       <SectionTitle
         icon={Explore}
         title="Odkryj coś nowego - poza Twoją bańką"
         subtitle="Specjalnie dla Ciebie wybraliśmy różnorodne pozycje"
       />
 
-      {/* Diversity Indicators */}
       <Box sx={{ mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
           <Chip
@@ -73,7 +64,6 @@ const DiverseDiscovery = ({ books, diversityScore, loading }) => {
           />
         </Box>
 
-        {/* Diversity Score Bar */}
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
             <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
@@ -98,7 +88,6 @@ const DiverseDiscovery = ({ books, diversityScore, loading }) => {
         </Box>
       </Box>
 
-      {/* Books Carousel */}
       <HorizontalBookScroll
         books={books.slice(0, 8)}
         onBookClick={handleBookClick}
@@ -107,7 +96,6 @@ const DiverseDiscovery = ({ books, diversityScore, loading }) => {
         interactionSource="diverse-discovery"
       />
 
-      {/* Explanation */}
       <Paper
         sx={{
           mt: 2,

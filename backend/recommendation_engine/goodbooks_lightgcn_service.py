@@ -12,7 +12,6 @@ from bson import ObjectId
 
 from .goodbooks_lightgcn import LightGCN, RATINGS_FILE, MODEL_DIR
 
-# Konfiguracja loggera
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -22,16 +21,12 @@ class GoodbooksLightGCNService:
     def __init__(self, db=None) -> None:
         print("🔄 Inicjalizacja GoodbooksLightGCNService (MongoDB Persistence)...")
 
-        # Database connection
         self.db = db
 
-        # Podstawowe dane i model
         self._load_data_and_model()
 
-        # 🆕 Incremental learning state
         self._init_incremental_state()
 
-        # 🆕 Załaduj zapisane embeddingi z MongoDB
         if self.db is not None:
             import asyncio
 
@@ -40,21 +35,17 @@ class GoodbooksLightGCNService:
         print("✅ GoodbooksLightGCNService gotowy (MongoDB Persistence aktywna).")
 
     def _load_data_and_model(self) -> None:
-        """Ładuje bazowy model i dane"""
         print(f"📥 Wczytuję ratings z {RATINGS_FILE}")
         df = pd.read_csv(RATINGS_FILE)
 
-        # rating >= 3 => pozytyw
         df = df[df["rating"] >= 3].copy()
 
-        # Enkodacja
         df["user_idx"] = df["user_id"].astype("category").cat.codes
         df["item_idx"] = df["book_id"].astype("category").cat.codes
 
         self.num_users = int(df["user_idx"].max() + 1)
         self.num_items = int(df["item_idx"].max() + 1)
 
-        # Mappings item_idx <-> goodbooks_book_id
         mapping_df = df[["item_idx", "book_id"]].drop_duplicates()
         self.item_idx_to_book_id: Dict[int, int] = {
             int(row.item_idx): int(row.book_id) for row in mapping_df.itertuples()
@@ -63,20 +54,17 @@ class GoodbooksLightGCNService:
             book_id: item_idx for item_idx, book_id in self.item_idx_to_book_id.items()
         }
 
-        # Popularność itemów
         counts = df.groupby("item_idx").size()
         self.popular_item_indices: List[int] = (
             counts.sort_values(ascending=False).index.astype(int).tolist()
         )
 
-        # edge_index
         users = torch.tensor(df["user_idx"].values, dtype=torch.long)
         items = torch.tensor(df["item_idx"].values, dtype=torch.long) + self.num_users
         rows = torch.cat([users, items], dim=0)
         cols = torch.cat([items, users], dim=0)
         self.edge_index = torch.stack([rows, cols], dim=0)
 
-        # Załadowanie modelu
         model_path = Path(MODEL_DIR) / "lightgcn_goodbooks_pro.pt"
         if not model_path.exists():
             model_path = Path(MODEL_DIR).parent / "trained_models" / "goodbooks_lightgcn_best.pt"
@@ -90,7 +78,6 @@ class GoodbooksLightGCNService:
         self.model.load_state_dict(state)
         self.model.eval()
 
-        # Prekomputacja embeddingów
         with torch.no_grad():
             user_emb, item_emb = self.model.propagate(self.edge_index)
 
@@ -103,7 +90,6 @@ class GoodbooksLightGCNService:
         print(f"   Embedding dim: {self.embedding_dim}")
 
     def _init_incremental_state(self) -> None:
-        """Inicjalizuj state dla incremental learning"""
         self.user_emb = self.user_emb_base.copy()
         self.mongo_user_to_idx: Dict[str, int] = {}
         self.idx_to_mongo_user: Dict[int, str] = {}
@@ -115,32 +101,14 @@ class GoodbooksLightGCNService:
         self.interactions_since_checkpoint = 0
         self.checkpoint_interval = 1000
 
-        # 🆕 Liczniki interakcji per user
         self.user_interaction_counts: Dict[str, int] = defaultdict(int)
 
-        # 🆕 Timestamp ostatniej aktualizacji per user
         self.user_last_update: Dict[str, datetime] = {}
 
         logger.info("✨ Incremental learning state initialized")
 
-    # =========================================================================
-    # 🆕 MONGODB PERSISTENCE METHODS
-    # =========================================================================
-
     async def _load_embeddings_from_db(self):
-        """
-        Załaduj zapisane embeddingi użytkowników z MongoDB przy starcie.
 
-        Kolekcja: user_embeddings
-        Struktura:
-        {
-            "user_id": "...",
-            "user_idx": 123,
-            "embedding": [...],
-            "interactions_count": 5,
-            "last_updated": ISODate(...)
-        }
-        """
         if self.db is None:
             logger.warning("⚠️  Brak połączenia z DB - pomijam ładowanie embeddingów")
             return
@@ -154,23 +122,18 @@ class GoodbooksLightGCNService:
                 user_idx = doc["user_idx"]
                 embedding = np.array(doc["embedding"], dtype=np.float32)
 
-                # Jeśli user_idx wykracza poza obecną tablicę, rozszerz ją
                 if user_idx >= len(self.user_emb):
-                    # Dodaj miejsce
                     needed_rows = user_idx - len(self.user_emb) + 1
                     new_embeddings = np.random.randn(needed_rows, self.embedding_dim) * np.sqrt(
                         2.0 / self.embedding_dim
                     )
                     self.user_emb = np.vstack([self.user_emb, new_embeddings])
 
-                # Zapisz embedding
                 self.user_emb[user_idx] = embedding
 
-                # Zapisz mapowanie
                 self.mongo_user_to_idx[user_id] = user_idx
                 self.idx_to_mongo_user[user_idx] = user_id
 
-                # Zapisz statystyki
                 self.user_interaction_counts[user_id] = doc.get("interactions_count", 0)
                 self.user_last_update[user_id] = doc.get("last_updated", datetime.utcnow())
 
@@ -185,11 +148,7 @@ class GoodbooksLightGCNService:
             traceback.print_exc()
 
     async def _save_user_embedding_to_db(self, user_id: str, user_idx: int):
-        """
-        Zapisz embedding użytkownika do MongoDB.
 
-        Wywoływane po każdej aktualizacji embeddingu.
-        """
         if self.db is None:
             return
 
@@ -203,10 +162,9 @@ class GoodbooksLightGCNService:
                 "interactions_count": self.user_interaction_counts.get(user_id, 0),
                 "last_updated": datetime.utcnow(),
                 "embedding_norm": float(np.linalg.norm(embedding)),
-                "is_new_user": user_idx >= self.num_users,  # Nowy użytkownik MongoDB
+                "is_new_user": user_idx >= self.num_users,
             }
 
-            # Upsert
             await self.db.user_embeddings.update_one(
                 {"user_id": user_id}, {"$set": doc}, upsert=True
             )
@@ -217,17 +175,12 @@ class GoodbooksLightGCNService:
             logger.error(f"❌ Błąd przy zapisie embeddingu: {e}")
 
     async def sync_interactions_from_db(self, max_interactions: int = 10000):
-        """
-        Załaduj ostatnie interakcje z kolekcji 'interactions' i przetworz je.
 
-        Używane przy pierwszym starcie lub synchronizacji.
-        """
         if self.db is None:
             logger.warning("⚠️  Brak połączenia z DB - pomijam sync interakcji")
             return
 
         try:
-            # Pobierz ostatnie interakcje
             cursor = self.db.interactions.find().sort("timestamp", -1).limit(max_interactions)
 
             interactions_processed = 0
@@ -239,7 +192,6 @@ class GoodbooksLightGCNService:
                     book_mongo_id = str(doc["book_id"])
                     interaction_type = doc.get("interaction_type", "view")
 
-                    # Pobierz goodbooks_id
                     book = await self.db.books.find_one({"_id": ObjectId(book_mongo_id)})
                     if not book or not book.get("goodbooks_book_id"):
                         interactions_skipped += 1
@@ -247,12 +199,11 @@ class GoodbooksLightGCNService:
 
                     goodbooks_id = int(book["goodbooks_book_id"])
 
-                    # Przetwórz bez zapisu do DB (już jest w DB)
                     self._process_interaction_internal(
                         user_id=user_id,
                         goodbooks_id=goodbooks_id,
                         interaction_type=interaction_type,
-                        save_to_db=False,  # Nie zapisuj - to sync
+                        save_to_db=False,
                     )
 
                     interactions_processed += 1
@@ -268,10 +219,6 @@ class GoodbooksLightGCNService:
 
         except Exception as e:
             logger.error(f"❌ Błąd przy synchronizacji interakcji: {e}")
-
-    # =========================================================================
-    # CORE METHODS (z modyfikacjami dla persistence)
-    # =========================================================================
 
     def get_or_create_user_idx(self, mongo_user_id: str) -> int:
         """Pobierz lub stwórz index użytkownika"""
@@ -294,10 +241,7 @@ class GoodbooksLightGCNService:
     def _process_interaction_internal(
         self, user_id: str, goodbooks_id: int, interaction_type: str, save_to_db: bool = True
     ) -> Dict:
-        """
-        Wewnętrzna metoda do przetwarzania interakcji (synchroniczna).
-        """
-        # Mapuj goodbooks_id → item_idx
+
         item_idx = self.book_id_to_item_idx.get(goodbooks_id)
 
         if item_idx is None:
@@ -307,42 +251,33 @@ class GoodbooksLightGCNService:
                 "goodbooks_book_id": goodbooks_id,
             }
 
-        # User index
         user_idx = self.get_or_create_user_idx(user_id)
 
-        # Wagi
         interaction_weights = {"borrow": 1.0, "review": 0.8, "reserve": 0.6, "view": 0.3}
         weight = interaction_weights.get(interaction_type, 0.5)
 
-        # Embeddingi
         user_emb = self.user_emb[user_idx]
         book_emb = self.item_emb[item_idx]
 
-        # Score przed
         score_before = np.dot(user_emb, book_emb)
 
-        # SGD update
         target = weight
         error = target - score_before
         gradient = -error * book_emb + self.reg_lambda * user_emb
         update_delta = self.learning_rate * gradient
         self.user_emb[user_idx] -= update_delta
 
-        # Normalizacja
         norm = np.linalg.norm(self.user_emb[user_idx])
         if norm > 10.0:
             self.user_emb[user_idx] /= norm / 10.0
 
-        # Score po
         score_after = np.dot(self.user_emb[user_idx], book_emb)
 
-        # Statystyki
         self.total_updates += 1
         self.interactions_since_checkpoint += 1
         self.user_interaction_counts[user_id] += 1
         self.user_last_update[user_id] = datetime.utcnow()
 
-        # 🆕 Zapisz do MongoDB jeśli save_to_db=True
         if save_to_db and self.db is not None:
             import asyncio
 
@@ -365,29 +300,24 @@ class GoodbooksLightGCNService:
     def process_interaction(
         self, mongo_user_id: str, goodbooks_book_id: int, interaction_type: str = "borrow"
     ) -> Dict:
-        """
-        Główna metoda - przetwarza interakcję i zapisuje do MongoDB.
-        """
+
         logger.info(
             f"⚡ Processing: user={mongo_user_id[:12]}..., "
             f"book={goodbooks_book_id}, type={interaction_type}"
         )
 
-        # Proces interakcji
         update_info = self._process_interaction_internal(
             user_id=mongo_user_id,
             goodbooks_id=goodbooks_book_id,
             interaction_type=interaction_type,
-            save_to_db=True,  # 🆕 Zapisz do MongoDB
+            save_to_db=True,
         )
 
         if not update_info["success"]:
             return update_info
 
-        # Invalidate cache
         self.invalidate_user_cache(mongo_user_id)
 
-        # Checkpoint?
         if self.interactions_since_checkpoint >= self.checkpoint_interval:
             logger.info("🔔 Checkpoint threshold reached...")
             self.interactions_since_checkpoint = 0
@@ -401,10 +331,8 @@ class GoodbooksLightGCNService:
         exclude_goodbooks_ids: Optional[Set[int]] = None,
         use_cache: bool = True,
     ) -> List[int]:
-        """Pobierz rekomendacje dla użytkownika"""
         cache_key = f"{mongo_user_id}:{n}"
 
-        # Cache check
         if use_cache and cache_key in self.recommendations_cache:
             cached_recs, cached_time = self.recommendations_cache[cache_key]
             age_seconds = (datetime.now() - cached_time).total_seconds()
@@ -415,19 +343,16 @@ class GoodbooksLightGCNService:
                 )
                 return cached_recs
 
-        # Oblicz rekomendacje
         user_idx = self.get_or_create_user_idx(mongo_user_id)
         user_emb = self.user_emb[user_idx]
         scores = np.dot(self.item_emb, user_emb)
 
-        # Wykluczenie
         if exclude_goodbooks_ids:
             for gb_id in exclude_goodbooks_ids:
                 item_idx = self.book_id_to_item_idx.get(gb_id)
                 if item_idx is not None:
                     scores[item_idx] = -1e9
 
-        # Top-N
         top_indices = np.argsort(scores)[-n:][::-1]
 
         result_ids: List[int] = []
@@ -442,13 +367,11 @@ class GoodbooksLightGCNService:
             if len(result_ids) >= n:
                 break
 
-        # Cache
         self.recommendations_cache[cache_key] = (result_ids, datetime.now())
 
         return result_ids
 
     def invalidate_user_cache(self, mongo_user_id: str):
-        """Usuń cache użytkownika"""
         keys_to_remove = [
             k for k in self.recommendations_cache.keys() if k.startswith(f"{mongo_user_id}:")
         ]
@@ -456,7 +379,6 @@ class GoodbooksLightGCNService:
             del self.recommendations_cache[key]
 
     def get_stats(self) -> Dict:
-        """Statystyki serwisu"""
         return {
             "base_users": self.num_users,
             "total_users": len(self.user_emb),
@@ -472,16 +394,11 @@ class GoodbooksLightGCNService:
             "mongodb_persistence": self.db is not None,
         }
 
-    # =========================================================================
-    # ORYGINALNE API (compatibility)
-    # =========================================================================
-
     def recommend_for_goodbooks_ids(
         self,
         seed_book_ids: List[int],
         top_k: int = 20,
     ) -> List[int]:
-        """Oryginalna metoda - bez zmian"""
         seed_indices: List[int] = []
         for b in seed_book_ids:
             try:
@@ -518,7 +435,6 @@ class GoodbooksLightGCNService:
         return result_ids
 
 
-# 🆕 Singleton z lazy DB init
 _service_instance = None
 
 
@@ -529,7 +445,7 @@ def get_service(db=None):
         _service_instance = GoodbooksLightGCNService(db=db)
     elif db is not None and _service_instance.db is None:
         _service_instance.db = db
-        # Trigger initial load
+
         import asyncio
 
         loop = asyncio.get_event_loop()
@@ -538,5 +454,4 @@ def get_service(db=None):
     return _service_instance
 
 
-# Backwards compatibility
-goodbooks_lgcn_service = None  # Will be set in main.py
+goodbooks_lgcn_service = None

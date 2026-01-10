@@ -1,6 +1,3 @@
-/**
- * LoadingSkeleton.jsx - Loading skeletons for different section types
- */
 
 import React from 'react';
 import { Box, Skeleton } from '@mui/material';

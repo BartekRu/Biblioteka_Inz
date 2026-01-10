@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import { Box, Chip, Paper, Typography, Badge } from '@mui/material';
 import { FiberNew, TrendingUp, Science } from '@mui/icons-material';
@@ -36,7 +34,6 @@ const NewArrivals = ({ books, loading }) => {
     return null;
   }
 
-  // Zlicz książki dodane w ostatnim tygodniu/miesiącu
   const recentCount = books.filter((book) => {
     if (!book.addedDate) return false;
     const addedDate = new Date(book.addedDate);
@@ -47,7 +44,6 @@ const NewArrivals = ({ books, loading }) => {
 
   return (
     <Box sx={pageStyles.sectionContainer}>
-      {/* Section Title */}
       <SectionTitle
         icon={FiberNew}
         title="Nowości w bibliotece, które mogą Ci się spodobać"
@@ -56,7 +52,6 @@ const NewArrivals = ({ books, loading }) => {
         subtitle="Świeże tytuły dopasowane do Twoich preferencji"
       />
 
-      {/* Stats Chips */}
       <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
         <Badge badgeContent={recentCount || books.length} color="error" max={99}>
           <Chip
@@ -82,7 +77,6 @@ const NewArrivals = ({ books, loading }) => {
         />
       </Box>
 
-      {/* Books Carousel */}
       <HorizontalBookScroll
         books={books.slice(0, 10)}
         onBookClick={handleBookClick}
@@ -91,7 +85,6 @@ const NewArrivals = ({ books, loading }) => {
         interactionSource="new-arrivals"
       />
 
-      {/* Explanation */}
       <Paper
         sx={{
           mt: 2,

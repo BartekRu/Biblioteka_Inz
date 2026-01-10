@@ -1,7 +1,3 @@
-/**
- * SectionTitle.jsx - Reusable section title component
- */
-
 import React from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import { COLORS, pageStyles } from '../../styles/theme';

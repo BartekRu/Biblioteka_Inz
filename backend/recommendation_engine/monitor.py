@@ -89,9 +89,6 @@ def print_service_stats(stats, health, interaction_stats):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"⏰ Time: {current_time}\n")
 
-    # ========================================================================
-    # SECTION 1: Service Health
-    # ========================================================================
     print("┌─ 🏥 SERVICE HEALTH " + "─" * 60 + "┐")
 
     status = health.get("status", "unknown")
@@ -104,9 +101,6 @@ def print_service_stats(stats, health, interaction_stats):
     print(f"│ MMR available:         {'✅ YES' if health.get('mmr_available') else '❌ NO':<30} │")
     print("└" + "─" * 78 + "┘\n")
 
-    # ========================================================================
-    # SECTION 2: LightGCN Model Stats
-    # ========================================================================
     print("┌─ 📊 LIGHTGCN MODEL STATISTICS " + "─" * 48 + "┐")
 
     total_users = stats.get("total_users", 0)
@@ -134,7 +128,6 @@ def print_service_stats(stats, health, interaction_stats):
     )
     print("└" + "─" * 78 + "┘\n")
 
-    # Progress bar for checkpoint
     progress = stats.get("interactions_since_checkpoint", 0)
     max_cp = stats.get("checkpoint_interval", 1000)
     if max_cp > 0:
@@ -149,9 +142,6 @@ def print_service_stats(stats, health, interaction_stats):
         )
         print("└" + "─" * 78 + "┘\n")
 
-    # ========================================================================
-    # SECTION 3: MongoDB Persistence
-    # ========================================================================
     interactions = interaction_stats.get("interactions", {})
     embeddings = interaction_stats.get("embeddings", {})
 
@@ -174,7 +164,6 @@ def print_service_stats(stats, health, interaction_stats):
     print(f"│                                                                              │")
     print(f"│ Embeddings persisted:  {embeddings_updated:>10,}                                  │")
 
-    # Update rate visualization
     if update_rate >= 80:
         rate_icon = "🟢"
     elif update_rate >= 50:
@@ -186,7 +175,6 @@ def print_service_stats(stats, health, interaction_stats):
         f"│ Persistence rate:      {rate_icon} {update_rate:>6.1f}%                                     │"
     )
 
-    # Progress bar for persistence
     if total_interactions > 0:
         bar_width = 60
         filled = int(bar_width * embeddings_updated / total_interactions)
@@ -197,7 +185,6 @@ def print_service_stats(stats, health, interaction_stats):
 
 
 def print_user_stats(stats, user, embedding_info, interaction_stats):
-    """Print comprehensive user statistics"""
     clear_screen()
 
     print_header("👤 USER PROFILE - EMBEDDING & INTERACTION TRACKING")
@@ -205,18 +192,12 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"⏰ Time: {current_time}\n")
 
-    # ========================================================================
-    # SECTION 1: User Identity
-    # ========================================================================
     print("┌─ 👤 USER IDENTITY " + "─" * 59 + "┐")
     print(f"│ User ID:    {user['_id']:<62} │")
     print(f"│ Email:      {user.get('email', 'N/A'):<62} │")
     print(f"│ Role:       {user.get('role', 'user'):<62} │")
     print("└" + "─" * 78 + "┘\n")
 
-    # ========================================================================
-    # SECTION 2: Embedding Status
-    # ========================================================================
     print("┌─ 🧠 EMBEDDING STATUS " + "─" * 56 + "┐")
 
     has_model = embedding_info.get("has_model_index", False)
@@ -235,7 +216,6 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
     if has_mongo:
         last_updated = embedding_info.get("embedding_last_updated", "Never")
         if last_updated and last_updated != "Never":
-            # Format timestamp
             try:
                 dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
                 last_updated = dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -250,7 +230,6 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
 
     recommendation = embedding_info.get("recommendation", "")
     if recommendation:
-        # Word wrap for recommendation
         import textwrap
 
         wrapped = textwrap.wrap(recommendation, width=62)
@@ -260,9 +239,6 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
 
     print("└" + "─" * 78 + "┘\n")
 
-    # ========================================================================
-    # SECTION 3: Interaction Statistics
-    # ========================================================================
     print("┌─ 📊 INTERACTION STATISTICS " + "─" * 50 + "┐")
 
     total_interactions = embedding_info.get("interaction_count_actual", 0)
@@ -284,7 +260,6 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
             f"│ Update rate:           {rate_icon} {update_rate:>6.1f}%                                     │"
         )
 
-        # Progress bar
         bar_width = 60
         filled = int(bar_width * embeddings_updated / total_interactions)
         bar = "█" * filled + "░" * (bar_width - filled)
@@ -292,14 +267,10 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
 
     print("└" + "─" * 78 + "┘\n")
 
-    # ========================================================================
-    # SECTION 4: Embedding Quality Metrics
-    # ========================================================================
     print("┌─ 📈 EMBEDDING QUALITY " + "─" * 55 + "┐")
 
     norm = stats.get("embedding_norm", "N/A")
     if isinstance(norm, float):
-        # Quality assessment based on norm
         if norm > 0.5:
             quality = "🟢 Good"
         elif norm > 0.1:
@@ -315,7 +286,6 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
 
     print(f"│                                                                              │")
 
-    # MongoDB embedding info
     mongo_count = embedding_info.get("interaction_count_mongodb", 0)
     if mongo_count > 0:
         print(f"│ MongoDB interactions:  {mongo_count:>10,}                                  │")
@@ -324,9 +294,6 @@ def print_user_stats(stats, user, embedding_info, interaction_stats):
 
     print("└" + "─" * 78 + "┘\n")
 
-    # ========================================================================
-    # SECTION 5: Recommendations Status
-    # ========================================================================
     print("┌─ 🎯 RECOMMENDATIONS " + "─" * 57 + "┐")
 
     if is_cold_start:
@@ -363,14 +330,11 @@ def main():
 
     try:
         while True:
-            # Get health status
             health = get_health(headers)
 
-            # Get interaction stats
             interaction_stats = get_interaction_stats(headers)
 
             if role == "admin":
-                # Admin view: Service statistics
                 resp = requests.get(
                     f"{BASE_URL}/v1/recommendations/debug/service-stats", headers=headers
                 )
@@ -381,12 +345,10 @@ def main():
                     print("❌ Service stats error:", resp.text)
 
             else:
-                # User view: Personal statistics
                 resp = requests.get(
                     f"{BASE_URL}/v1/recommendations/debug/user-stats/{user_id}", headers=headers
                 )
 
-                # Get embedding info
                 embedding_info = get_embedding_info(user_id, headers)
 
                 if resp.status_code == 200:
