@@ -24,8 +24,31 @@ async def get_user_top_genres(db, user_id: str, limit: int = 3) -> List[dict]:
         # Fallback: popularne gatunki
         popular_genres = await db.books.aggregate(
             [
-                {"$unwind": "$genres"},
-                {"$group": {"_id": "$genres", "count": {"$sum": 1}}},
+                {
+                    "$addFields": {
+                        "genre_values": {
+                            "$cond": [
+                                {"$isArray": "$genres"},
+                                "$genres",
+                                {
+                                    "$cond": [
+                                        {"$isArray": "$genre"},
+                                        "$genre",
+                                        {
+                                            "$cond": [
+                                                {"$ne": ["$genre", None]},
+                                                ["$genre"],
+                                                [],
+                                            ]
+                                        },
+                                    ]
+                                },
+                            ]
+                        }
+                    }
+                },
+                {"$unwind": "$genre_values"},
+                {"$group": {"_id": "$genre_values", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}},
                 {"$limit": limit},
             ]

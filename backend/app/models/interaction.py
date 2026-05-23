@@ -59,9 +59,11 @@ INTERACTION_WEIGHTS = {
     "borrow": 1.0,  # Wypożyczenie - najsilniejszy sygnał
     "review": 0.8,  # Recenzja - silny sygnał
     "reserve": 0.6,  # Rezerwacja - średni sygnał
-    "view": 0.3,  # Przeglądanie - słaby sygnał
+    "view": 0.1,  # Przegladanie - bardzo slaby sygnal
     "favorite": 0.9,  # Dodanie do ulubionych
-    "search": 0.2,  # Wyszukiwanie - bardzo słaby sygnał
+    "search": 0.2,  # Wyszukiwanie - bardzo slaby sygnal
+    "wishlist_add": 0.5,
+    "wishlist_remove": 0.0,
 }
 
 

@@ -73,7 +73,7 @@ def get_service():
 
 class InteractionIn(BaseModel):
     book_id: str
-    interaction_type: Literal["view", "review", "borrow"]
+    interaction_type: Literal["view", "review", "borrow", "wishlist_add", "wishlist_remove"]
     metadata: Optional[dict] = None
 
 
@@ -215,12 +215,14 @@ async def report_interaction(
         except (TypeError, ValueError):
             pass
 
+    update_embedding = interaction.interaction_type != "wishlist_remove"
+
     result = await interaction_service.create_interaction(
         user_id=user_id,
         book_id=interaction.book_id,
         interaction_type=interaction.interaction_type,
         metadata=meta,
-        update_embedding=True,
+        update_embedding=update_embedding,
     )
 
     if result.get("embedding_updated"):
@@ -322,23 +324,29 @@ async def get_user_lightgcn_recommendations(
             # ✅ FIX: Zwiększ fetch_n gdy genre_boost aktywny!
             # ============================================================
             if use_mmr and use_genre_boost:
-                fetch_n = limit * 5  # ← 5x dla genre boosting!
+                fetch_n = limit * 10
             elif use_mmr:
-                fetch_n = limit * 3
+                fetch_n = limit * 6
             else:
                 fetch_n = limit
 
-            all_recs = await rec_service.get_recommendations(
+            lightgcn_recs = await rec_service.get_recommendations(
                 user_id=user_id, n=fetch_n, exclude_books=borrowed_book_ids
             )
+            content_recs = await rec_service.get_content_based_recommendations(
+                user_id=user_id, n=limit * 2
+            )
+            all_recs = lightgcn_recs + content_recs
 
-        goodbooks_ids_for_enrich = [r["goodbooks_id"] for r in all_recs if r.get("goodbooks_id")]
-
-        candidates = await enrich_recommendations_with_metadata(
-            goodbooks_ids_for_enrich, db, limit=len(goodbooks_ids_for_enrich)
-        )
+        candidates = await enrich_recommendations_with_metadata(all_recs, db, limit=len(all_recs))
 
         logger.info(f"📚 Got {len(candidates)} candidates")
+
+        candidates = await rec_service.apply_hybrid_scoring(
+            candidates=candidates, user_id=user_id, relevance_weight=0.70
+        )
+        cluster_limits = await rec_service.get_cluster_limits(user_id, limit)
+        logger.info(f"Recommendation cluster limits: {cluster_limits}")
 
         # ============================================================
         # 🆕 GENRE BOOSTING (przed MMR!)
@@ -393,6 +401,8 @@ async def get_user_lightgcn_recommendations(
                         use_content_similarity=True,
                         enforce_author_limit=enforce_author_limit,
                         max_per_author=max_per_author,
+                        max_per_series=2,
+                        cluster_limits=cluster_limits,
                     )
 
                     div_metrics = diversity_metrics(results) if results else {}
@@ -409,6 +419,9 @@ async def get_user_lightgcn_recommendations(
                         "interactions_count": interactions_count,
                         "genre_boosted": genre_boosted,
                         "boost_factor": boost_factor if genre_boosted else None,
+                        "hybrid_scoring": True,
+                        "relevance_weight": 0.70,
+                        "cluster_limits": cluster_limits,
                     }
 
                 else:
@@ -420,6 +433,8 @@ async def get_user_lightgcn_recommendations(
                         use_content_similarity=True,
                         enforce_author_limit=enforce_author_limit,
                         max_per_author=max_per_author,
+                        max_per_series=2,
+                        cluster_limits=cluster_limits,
                     )
 
                     div_metrics = diversity_metrics(results) if results else {}
@@ -434,6 +449,9 @@ async def get_user_lightgcn_recommendations(
                         "interactions_count": interactions_count,
                         "genre_boosted": genre_boosted,
                         "boost_factor": boost_factor if genre_boosted else None,
+                        "hybrid_scoring": True,
+                        "relevance_weight": 0.70,
+                        "cluster_limits": cluster_limits,
                     }
 
                 logger.info(
@@ -460,6 +478,9 @@ async def get_user_lightgcn_recommendations(
                 "interactions_count": interactions_count,
                 "genre_boosted": genre_boosted,
                 "boost_factor": boost_factor if genre_boosted else None,
+                "hybrid_scoring": True,
+                "relevance_weight": 0.70,
+                "cluster_limits": cluster_limits,
             }
 
     except Exception as e:
@@ -508,7 +529,7 @@ async def _legacy_get_recommendations(
                 continue
 
     try:
-        fetch_n = limit * 3 if use_mmr else limit
+        fetch_n = limit * 6 if use_mmr else limit
 
         rec_goodbooks_ids = get_service().get_recommendations_for_user(
             mongo_user_id=user_id,

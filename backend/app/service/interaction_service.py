@@ -3,7 +3,7 @@ services/interaction_service.py
 Centralized service for managing ALL user interactions: view, borrow, review
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict
 from motor.motor_asyncio import AsyncIOMotorCollection
 import logging
@@ -11,9 +11,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 INTERACTION_WEIGHTS = {
-    "view": 0.3,
+    "view": 0.1,
     "review": 0.8,
     "borrow": 1.0,
+    "wishlist_add": 0.5,
+    "wishlist_remove": 0.0,
+}
+
+DEDUP_WINDOWS = {
+    "view": timedelta(minutes=15),
+    "borrow": timedelta(minutes=2),
+    "wishlist_add": timedelta(minutes=2),
+    "wishlist_remove": timedelta(minutes=2),
 }
 
 
@@ -32,10 +41,10 @@ class InteractionService:
     ):
         self.interactions = interactions_collection
         self.rec_service = recommendation_service
-        
+
         # Sprawdź czy mamy aktywny serwis rekomendacji
         self.embeddings_enabled = recommendation_service is not None
-        
+
         if not self.embeddings_enabled:
             logger.warning(
                 "⚠️  InteractionService initialized WITHOUT recommendation service - "
@@ -52,14 +61,14 @@ class InteractionService:
     ) -> Dict:
         """
         Tworzy nową interakcję i opcjonalnie aktualizuje embeddingi
-        
+
         Args:
             user_id: MongoDB user_id
             book_id: MongoDB book_id
             interaction_type: 'view', 'review', lub 'borrow'
             metadata: Dodatkowe dane (opcjonalne)
             update_embedding: Czy aktualizować embeddingi (domyślnie True)
-        
+
         Returns:
             Dict z wynikami: interaction_id, weight, embedding_updated, etc.
         """
@@ -70,6 +79,35 @@ class InteractionService:
         weight = INTERACTION_WEIGHTS[interaction_type]
         embedding_updated = False
         embedding_result = None
+        now = datetime.utcnow()
+
+        dedup_window = DEDUP_WINDOWS.get(interaction_type)
+        if dedup_window:
+            recent = await self.interactions.find_one(
+                {
+                    "user_id": user_id,
+                    "book_id": book_id,
+                    "interaction_type": interaction_type,
+                    "created_at": {"$gte": now - dedup_window},
+                },
+                sort=[("created_at", -1)],
+            )
+            if recent:
+                logger.info(
+                    "Skipping duplicate interaction | %s | user=%s book=%s",
+                    interaction_type,
+                    user_id[:12],
+                    book_id[:12],
+                )
+                return {
+                    "interaction_id": str(recent["_id"]),
+                    "interaction_type": interaction_type,
+                    "weight": weight,
+                    "embedding_updated": False,
+                    "embedding_result": None,
+                    "created_at": recent.get("created_at"),
+                    "deduplicated": True,
+                }
 
         interaction_doc = {
             "user_id": user_id,
@@ -77,7 +115,7 @@ class InteractionService:
             "interaction_type": interaction_type,
             "weight": weight,
             "metadata": metadata or {},
-            "created_at": datetime.utcnow(),
+            "created_at": now,
             "embedding_updated": False,
         }
 
@@ -112,7 +150,11 @@ class InteractionService:
                         f"(total_updates={embedding_result.get('total_updates', '?')})"
                     )
                 else:
-                    reason = embedding_result.get("reason", "unknown") if embedding_result else "no_result"
+                    reason = (
+                        embedding_result.get("reason", "unknown")
+                        if embedding_result
+                        else "no_result"
+                    )
                     logger.warning(
                         f"⚠️  Embedding NOT updated: user={user_id[:12]}... "
                         f"book={book_id[:12]}... reason={reason}"
@@ -120,7 +162,7 @@ class InteractionService:
 
             except Exception as e:
                 logger.error(f"❌ Embedding update failed: {e}", exc_info=True)
-        
+
         elif update_embedding and not self.embeddings_enabled:
             logger.debug("⚠️  Embedding update skipped - recommendation service not available")
 
@@ -162,32 +204,31 @@ class InteractionService:
         logger.info(f"📊 Breakdown: {stats}")
 
         return interactions
-    
+
     async def get_embedding_stats(self) -> Dict:
         """
         Statystyki dotyczące aktualizacji embeddingów
         """
         total = await self.interactions.count_documents({})
         updated = await self.interactions.count_documents({"embedding_updated": True})
-        
+
         # Per typ
         stats_by_type = {}
         for itype in INTERACTION_WEIGHTS.keys():
             type_total = await self.interactions.count_documents({"interaction_type": itype})
-            type_updated = await self.interactions.count_documents({
-                "interaction_type": itype,
-                "embedding_updated": True
-            })
+            type_updated = await self.interactions.count_documents(
+                {"interaction_type": itype, "embedding_updated": True}
+            )
             stats_by_type[itype] = {
                 "total": type_total,
                 "embedding_updated": type_updated,
-                "update_rate": round(type_updated / type_total * 100, 2) if type_total > 0 else 0
+                "update_rate": round(type_updated / type_total * 100, 2) if type_total > 0 else 0,
             }
-        
+
         return {
             "total_interactions": total,
             "embeddings_updated": updated,
             "update_rate_percent": round(updated / total * 100, 2) if total > 0 else 0,
             "embeddings_enabled": self.embeddings_enabled,
-            "by_type": stats_by_type
+            "by_type": stats_by_type,
         }

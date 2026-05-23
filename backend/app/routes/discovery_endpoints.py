@@ -103,7 +103,7 @@ async def get_genre_recommendations(
             if user_embedding is not None:
                 try:
                     gb_id = book.get("goodbooks_book_id")
-                    book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+                    book_idx = lightgcn.book_id_to_item_idx.get(int(gb_id)) if gb_id else None
 
                     if book_idx is not None:
                         book_embedding = lightgcn.item_emb[book_idx]
@@ -162,7 +162,15 @@ async def get_author_recommendations(
     user_borrows = await db.interactions.find(
         {"user_id": user_id, "interaction_type": "borrow"}
     ).to_list(length=None)
-    borrowed_book_ids = {i["book_id"] for i in user_borrows}
+    borrowed_book_ids = [
+        (
+            ObjectId(i["book_id"])
+            if isinstance(i.get("book_id"), str) and ObjectId.is_valid(i["book_id"])
+            else i.get("book_id")
+        )
+        for i in user_borrows
+        if i.get("book_id")
+    ]
 
     sections = []
     for author_info in favorite_authors:
@@ -188,7 +196,7 @@ async def get_author_recommendations(
             if user_embedding is not None:
                 try:
                     gb_id = book.get("goodbooks_book_id")
-                    book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+                    book_idx = lightgcn.book_id_to_item_idx.get(int(gb_id)) if gb_id else None
 
                     if book_idx is not None:
                         book_embedding = lightgcn.item_emb[book_idx]
@@ -431,7 +439,7 @@ async def get_similar_readers_books(
             # Dodaj matchScore z LightGCN
             try:
                 gb_id = book.get("goodbooks_book_id")
-                book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+                book_idx = lightgcn.book_id_to_item_idx.get(int(gb_id)) if gb_id else None
 
                 if book_idx is not None:
                     book_embedding = lightgcn.item_emb[book_idx]
@@ -520,7 +528,11 @@ async def get_hidden_gems(
         ]
     ).to_list(length=None)
 
-    underrated_book_ids = [ObjectId(b["_id"]) for b in borrow_counts]
+    underrated_book_ids = [
+        ObjectId(b["_id"])
+        for b in borrow_counts
+        if isinstance(b.get("_id"), str) and ObjectId.is_valid(b["_id"])
+    ]
 
     # Znajdź wysoko oceniane
     query = {
@@ -530,7 +542,10 @@ async def get_hidden_gems(
     }
 
     if favorite_genres:
-        query["genres"] = {"$in": favorite_genres}
+        query["$or"] = [
+            {"genre": {"$in": favorite_genres}},
+            {"genres": {"$in": favorite_genres}},
+        ]
 
     hidden_gems = await db.books.find(query).to_list(length=100)
 
@@ -583,7 +598,11 @@ async def get_highly_rated_discoveries(
     user_reads = await db.interactions.find(
         {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
     ).to_list(length=None)
-    read_book_ids = [ObjectId(i["book_id"]) for i in user_reads]
+    read_book_ids = [
+        ObjectId(i["book_id"])
+        for i in user_reads
+        if isinstance(i.get("book_id"), str) and ObjectId.is_valid(i["book_id"])
+    ]
 
     # Znajdź wysoko oceniane
     query = {
@@ -593,7 +612,10 @@ async def get_highly_rated_discoveries(
     }
 
     if favorite_genres:
-        query["genres"] = {"$in": favorite_genres}
+        query["$or"] = [
+            {"genre": {"$in": favorite_genres}},
+            {"genres": {"$in": favorite_genres}},
+        ]
 
     highly_rated = await db.books.find(query).limit(100).to_list(length=None)
 
@@ -623,7 +645,7 @@ async def get_highly_rated_discoveries(
         if user_embedding is not None:
             try:
                 gb_id = book.get("goodbooks_book_id")
-                book_idx = lightgcn.goodbooks_id_to_idx.get(int(gb_id)) if gb_id else None
+                book_idx = lightgcn.book_id_to_item_idx.get(int(gb_id)) if gb_id else None
 
                 if book_idx is not None:
                     book_embedding = lightgcn.item_emb[book_idx]

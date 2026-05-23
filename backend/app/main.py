@@ -23,6 +23,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def ensure_runtime_indexes(db):
+    await db.interactions.create_index(
+        [("user_id", 1), ("interaction_type", 1), ("created_at", -1)]
+    )
+    await db.interactions.create_index(
+        [("user_id", 1), ("book_id", 1), ("interaction_type", 1), ("created_at", -1)]
+    )
+    await db.loans.create_index([("user_id", 1), ("status", 1)])
+    await db.books.create_index("authors")
+    await db.books.create_index("genres")
+    await db.books.create_index("canonical_genres")
+    await db.books.create_index("recommendation_clusters")
+    await db.books.create_index("series_key")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
@@ -32,6 +47,8 @@ async def lifespan(app: FastAPI):
     logger.info("✅ Connected to MongoDB")
 
     db = get_database()
+    await ensure_runtime_indexes(db)
+    logger.info("Runtime indexes ensured")
 
     logger.info("📊 Initializing GoodbooksLightGCNService...")
     try:
@@ -216,7 +233,7 @@ async def get_stats():
         for item in interaction_types:
             stats["interactions"][item["_id"]] = item["count"]
 
-        active_loans = await db.loans.count_documents({"status": "borrowed"})
+        active_loans = await db.loans.count_documents({"status": "active"})
         stats["active_loans"] = active_loans
 
         embeddings_updated = await db.interactions.count_documents({"embedding_updated": True})

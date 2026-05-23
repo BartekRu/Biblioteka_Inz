@@ -253,7 +253,7 @@ class GoodbooksLightGCNService:
 
         user_idx = self.get_or_create_user_idx(user_id)
 
-        interaction_weights = {"borrow": 1.0, "review": 0.8, "reserve": 0.6, "view": 0.3}
+        interaction_weights = {"borrow": 1.0, "review": 0.8, "reserve": 0.6, "view": 0.1}
         weight = interaction_weights.get(interaction_type, 0.5)
 
         user_emb = self.user_emb[user_idx]

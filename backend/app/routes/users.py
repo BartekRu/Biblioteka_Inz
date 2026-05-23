@@ -201,7 +201,12 @@ async def get_user_recommendations(
     ).distinct("book_id")
 
     if borrowed:
-        pipeline.append({"$match": {"_id": {"$nin": borrowed}}})
+        borrowed_ids = [
+            ObjectId(book_id)
+            for book_id in borrowed
+            if isinstance(book_id, str) and ObjectId.is_valid(book_id)
+        ]
+        pipeline.append({"$match": {"_id": {"$nin": borrowed_ids}}})
 
     # Oblicz score na podstawie dopasowania do preferencji z interakcji
     pipeline.append(

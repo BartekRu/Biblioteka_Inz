@@ -119,8 +119,6 @@ const BookDetails = () => {
 
       await loansAPI.create(book._id);
 
-      await recommendationsAPI.reportInteraction(book._id, 'borrow');
-
       const response = await booksAPI.getById(id);
       setBook(response.data);
 

@@ -4,6 +4,12 @@ from bson import ObjectId
 import logging
 import numpy as np
 from collections import Counter
+from ..utils.book_contract import (
+    enrich_book_contract,
+    get_authors,
+    get_genres,
+    normalize_genre as contract_normalize_genre,
+)
 import math  # ✅ FIX #2: Dodano dla eksponencjalnego score
 
 logger = logging.getLogger(__name__)
@@ -29,16 +35,7 @@ def normalize_genre(genre: str) -> str:
     "Sci-Fi" → "science fiction"
     "Ya" → "young adult"
     """
-    if not genre:
-        return ""
-
-    # Lowercase, trim, usuń duplikaty spacji
-    g = genre.strip().lower()
-    g = g.replace("-", " ")
-    g = " ".join(g.split())
-
-    # Aplikuj aliasy
-    return GENRE_ALIASES.get(g, g)
+    return contract_normalize_genre(genre)
 
 
 class RecommendationService:
@@ -616,7 +613,9 @@ class RecommendationService:
 
         try:
             interactions = (
-                await self.db.interactions.find({"user_id": user_id})
+                await self.db.interactions.find(
+                    {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
+                )
                 .sort("created_at", -1)
                 .limit(50)
                 .to_list(length=50)
@@ -635,10 +634,11 @@ class RecommendationService:
             author_counts = {}
 
             for book in books:
-                for genre in book.get("genres", []):
+                book = enrich_book_contract(book)
+                for genre in get_genres(book):
                     genre_counts[genre] = genre_counts.get(genre, 0) + 1
 
-                for author in book.get("authors", []):
+                for author in get_authors(book):
                     author_counts[author] = author_counts.get(author, 0) + 1
 
             top_genres = sorted(genre_counts.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -651,10 +651,14 @@ class RecommendationService:
             query = {"$or": []}
 
             if top_genres:
-                query["$or"].append({"genres": {"$in": [g[0] for g in top_genres]}})
+                genre_values = [g[0] for g in top_genres]
+                query["$or"].append({"genre": {"$in": genre_values}})
+                query["$or"].append({"genres": {"$in": genre_values}})
 
             if top_authors:
-                query["$or"].append({"authors": {"$in": [a[0] for a in top_authors]}})
+                author_values = [a[0] for a in top_authors]
+                query["$or"].append({"author": {"$in": author_values}})
+                query["$or"].append({"authors": {"$in": author_values}})
 
             if not query["$or"]:
                 return await self._get_popular_books(n)
@@ -665,15 +669,16 @@ class RecommendationService:
 
             scored = []
             for book in matching_books:
+                book = enrich_book_contract(book)
                 score = 0.0
                 reasons = []
 
-                for genre in book.get("genres", []):
+                for genre in get_genres(book):
                     if genre in genre_counts:
                         score += genre_counts[genre] * 0.5
                         reasons.append(f"Genre: {genre}")
 
-                for author in book.get("authors", []):
+                for author in get_authors(book):
                     if author in author_counts:
                         score += author_counts[author] * 0.3
                         reasons.append(f"Author: {author}")
@@ -699,6 +704,129 @@ class RecommendationService:
         except Exception as e:
             logger.error(f"❌ Content-based recommendations failed: {e}", exc_info=True)
             return await self._get_popular_books(n)
+
+    async def _get_user_content_profile(self, user_id: str, limit: int = 80) -> Dict:
+        interactions = (
+            await self.db.interactions.find(
+                {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
+            )
+            .sort("created_at", -1)
+            .limit(limit)
+            .to_list(length=limit)
+        )
+
+        if not interactions:
+            return {"genres": Counter(), "authors": Counter(), "clusters": Counter()}
+
+        book_ids = [
+            self._to_object_id(interaction["book_id"])
+            for interaction in interactions
+            if interaction.get("book_id")
+        ]
+        books = await self.db.books.find({"_id": {"$in": book_ids}}).to_list(length=len(book_ids))
+        book_map = {str(book["_id"]): enrich_book_contract(book) for book in books}
+
+        genre_counter = Counter()
+        author_counter = Counter()
+        cluster_counter = Counter()
+
+        type_weights = {"borrow": 1.0, "review": 0.8}
+        for interaction in interactions:
+            book = book_map.get(str(interaction.get("book_id")))
+            if not book:
+                continue
+
+            weight = type_weights.get(interaction.get("interaction_type"), 0.5)
+            for genre in book.get("canonical_genres", []):
+                genre_counter[genre] += weight
+            for author in get_authors(book):
+                author_counter[author] += weight
+            for cluster in book.get("recommendation_clusters", []):
+                cluster_counter[cluster] += weight
+
+        return {"genres": genre_counter, "authors": author_counter, "clusters": cluster_counter}
+
+    async def get_cluster_limits(self, user_id: str, n: int) -> Dict[str, int]:
+        profile = await self._get_user_content_profile(user_id)
+        has_comics_signal = profile["clusters"].get("comics_manga", 0) > 0
+
+        if has_comics_signal:
+            comics_limit = max(4, int(math.ceil(n * 0.40)))
+        else:
+            comics_limit = 2
+
+        return {"comics_manga": comics_limit}
+
+    async def apply_hybrid_scoring(
+        self, candidates: List[Dict], user_id: str, relevance_weight: float = 0.70
+    ) -> List[Dict]:
+        if not candidates:
+            return candidates
+
+        profile = await self._get_user_content_profile(user_id)
+        genre_total = sum(profile["genres"].values()) or 0.0
+        author_total = sum(profile["authors"].values()) or 0.0
+        cluster_total = sum(profile["clusters"].values()) or 0.0
+
+        raw_scores = [float(candidate.get("score", 0.0) or 0.0) for candidate in candidates]
+        min_score = min(raw_scores)
+        max_score = max(raw_scores)
+        score_range = max_score - min_score
+
+        for candidate in candidates:
+            candidate = enrich_book_contract(candidate)
+            lightgcn_score = float(candidate.get("score", 0.0) or 0.0)
+            if score_range > 0:
+                lightgcn_norm = (lightgcn_score - min_score) / score_range
+            else:
+                lightgcn_norm = 1.0
+
+            genre_score = 0.0
+            if genre_total:
+                genre_score = (
+                    sum(
+                        profile["genres"].get(genre, 0.0)
+                        for genre in candidate.get("canonical_genres", [])
+                    )
+                    / genre_total
+                )
+
+            author_score = 0.0
+            if author_total:
+                author_score = (
+                    sum(profile["authors"].get(author, 0.0) for author in get_authors(candidate))
+                    / author_total
+                )
+
+            cluster_score = 0.0
+            if cluster_total:
+                cluster_score = (
+                    sum(
+                        profile["clusters"].get(cluster, 0.0)
+                        for cluster in candidate.get("recommendation_clusters", [])
+                    )
+                    / cluster_total
+                )
+
+            profile_score = min(
+                1.0, genre_score * 0.55 + author_score * 0.30 + cluster_score * 0.15
+            )
+            rating_score = min(float(candidate.get("average_rating", 0.0) or 0.0) / 5.0, 1.0)
+            popularity = float(candidate.get("ratings_count", 0.0) or 0.0)
+            popularity_score = min(math.log1p(popularity) / math.log1p(5_000_000), 1.0)
+            quality_score = rating_score * 0.75 + popularity_score * 0.25
+
+            candidate["lightgcn_score"] = lightgcn_score
+            candidate["content_score"] = profile_score
+            candidate["quality_score"] = quality_score
+            candidate["score"] = (
+                relevance_weight * lightgcn_norm
+                + 0.25 * profile_score
+                + (1.0 - relevance_weight - 0.25) * quality_score
+            )
+
+        candidates.sort(key=lambda item: item.get("score", 0.0), reverse=True)
+        return candidates
 
     async def update_user_embedding_incremental(
         self, user_id: str, book_id: str, interaction_weight: float
