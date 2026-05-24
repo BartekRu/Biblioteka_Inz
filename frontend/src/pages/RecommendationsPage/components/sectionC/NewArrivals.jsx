@@ -78,7 +78,7 @@ const NewArrivals = ({ books, loading }) => {
       </Box>
 
       <HorizontalBookScroll
-        books={books.slice(0, 10)}
+        books={books.slice(0, 20)}
         onBookClick={handleBookClick}
         showScore={true}
         showReason={true}

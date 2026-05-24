@@ -7,7 +7,7 @@ All /by-genre, /by-author, /similar-readers, /new-arrivals, /hidden-gems, /highl
 """
 
 from fastapi import APIRouter, Query, Depends, HTTPException
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 from collections import Counter
 from bson import ObjectId
@@ -45,6 +45,157 @@ def get_service():
     return service_module.goodbooks_lgcn_service
 
 
+def _to_numpy_vector(vector) -> Optional[np.ndarray]:
+    if vector is None:
+        return None
+    if hasattr(vector, "detach"):
+        vector = vector.detach().cpu().numpy()
+    return np.asarray(vector, dtype=float)
+
+
+def _safe_cosine(vec_a, vec_b) -> Optional[float]:
+    a = _to_numpy_vector(vec_a)
+    b = _to_numpy_vector(vec_b)
+    if a is None or b is None:
+        return None
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return None
+    return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+def _to_book_query_id(book_id):
+    if isinstance(book_id, ObjectId):
+        return book_id
+    if isinstance(book_id, str) and ObjectId.is_valid(book_id):
+        return ObjectId(book_id)
+    return book_id
+
+
+async def _get_user_read_book_ids(db, user_id: str) -> set:
+    interactions = await db.interactions.find(
+        {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
+    ).to_list(length=None)
+    book_ids = {item["book_id"] for item in interactions if item.get("book_id")}
+
+    loans = await db.loans.find({"user_id": user_id}).to_list(length=None)
+    book_ids.update(item["book_id"] for item in loans if item.get("book_id"))
+
+    return book_ids
+
+
+async def _hydrate_ranked_books(
+    db,
+    ranked_books,
+    limit: int,
+    lightgcn=None,
+    user_embedding=None,
+):
+    ranked_books = ranked_books[:limit]
+    if not ranked_books:
+        return []
+
+    book_ids = [book_id for book_id, _ in ranked_books]
+    books = await db.books.find(
+        {"_id": {"$in": [_to_book_query_id(book_id) for book_id in book_ids]}}
+    ).to_list(length=None)
+    book_dict = {str(book["_id"]): normalize_book(serialize_doc(book)) for book in books}
+    max_count = ranked_books[0][1] if ranked_books else 1
+
+    result_books = []
+    for book_id, count in ranked_books:
+        book = book_dict.get(str(book_id))
+        if not book:
+            continue
+
+        book["popularityScore"] = count / max_count if max_count else 0
+        book["popularityCount"] = count
+
+        if lightgcn is not None and user_embedding is not None:
+            try:
+                gb_id = book.get("goodbooks_book_id")
+                book_idx = lightgcn.book_id_to_item_idx.get(int(gb_id)) if gb_id else None
+                if book_idx is not None:
+                    score = _safe_cosine(user_embedding, lightgcn.item_emb[book_idx])
+                    if score is not None:
+                        book["matchScore"] = score
+            except Exception:
+                pass
+
+        result_books.append(book)
+
+    return result_books
+
+
+async def _similar_readers_fallback(db, user_id: str, limit: int, reason: str):
+    user_book_ids = await _get_user_read_book_ids(db, user_id)
+    user_book_id_list = list(user_book_ids)
+
+    source = "popular_cold_start"
+    similar_user_count = 0
+    ranked_books = []
+
+    if user_book_id_list:
+        overlap_rows = await db.interactions.find(
+            {
+                "user_id": {"$ne": user_id},
+                "book_id": {"$in": user_book_id_list},
+                "interaction_type": {"$in": ["borrow", "review"]},
+            }
+        ).to_list(length=None)
+
+        similar_counts = Counter(row["user_id"] for row in overlap_rows if row.get("user_id"))
+        similar_user_ids = [user for user, _ in similar_counts.most_common(50)]
+        similar_user_count = len(similar_user_ids)
+
+        if similar_user_ids:
+            similar_interactions = await db.interactions.find(
+                {
+                    "user_id": {"$in": similar_user_ids},
+                    "interaction_type": {"$in": ["borrow", "review"]},
+                }
+            ).to_list(length=None)
+            popularity = Counter()
+            for interaction in similar_interactions:
+                book_id = interaction.get("book_id")
+                if book_id and book_id not in user_book_ids:
+                    popularity[book_id] += similar_counts.get(interaction.get("user_id"), 1)
+
+            ranked_books = popularity.most_common(limit)
+            if ranked_books:
+                source = "interaction_overlap"
+
+    if not ranked_books:
+        popular_rows = await db.interactions.aggregate(
+            [
+                {"$match": {"interaction_type": {"$in": ["borrow", "review"]}}},
+                {"$group": {"_id": "$book_id", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": limit * 3},
+            ]
+        ).to_list(length=None)
+        ranked_books = [
+            (row["_id"], row["count"])
+            for row in popular_rows
+            if row.get("_id") and row["_id"] not in user_book_ids
+        ][:limit]
+
+    books = await _hydrate_ranked_books(db, ranked_books, limit)
+
+    return {
+        "books": books,
+        "similar_user_count": similar_user_count,
+        "metadata": {
+            "fallback_used": True,
+            "source": source,
+            "reason": reason,
+            "similar_users_found": similar_user_count,
+            "user_history_count": len(user_book_ids),
+        },
+    }
+
+
 @router.get("/by-genre")
 async def get_genre_recommendations(
     limit: int = Query(3, ge=1, le=5, description="Liczba gatunków"),
@@ -65,6 +216,9 @@ async def get_genre_recommendations(
         return []
 
     # Pobierz embedding użytkownika
+    lightgcn = None
+    user_embedding = None
+
     try:
         lightgcn = get_service()
         user_idx = lightgcn.mongo_user_to_idx.get(user_id)
@@ -256,23 +410,19 @@ async def get_similar_readers_books(
 
         if user_idx is None:
             logger.warning(f"⚠️ User {user_id} not in LightGCN model")
-            return {
-                "books": [],
-                "similar_user_count": 0,
-                "metadata": {
-                    "error": "User not in model",
-                    "suggestion": "Borrow some books to get into the model",
-                },
-            }
+            return await _similar_readers_fallback(
+                db, user_id, limit, reason="user_not_in_lightgcn_model"
+            )
 
         user_embedding = lightgcn.user_emb[user_idx]
         logger.info(f"✅ Got embedding for user_idx: {user_idx}")
     except Exception as e:
         logger.error(f"❌ LightGCN service error: {e}")
-        return {"books": [], "similar_user_count": 0, "metadata": {"error": str(e)}}
+        return await _similar_readers_fallback(db, user_id, limit, reason="lightgcn_unavailable")
 
     # Znajdź podobnych użytkowników
-    all_users = await db.users.find({"_id": {"$ne": ObjectId(user_id)}}).to_list(length=None)
+    user_query_id = ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
+    all_users = await db.users.find({"_id": {"$ne": user_query_id}}).to_list(length=None)
 
     logger.info(f"📊 Found {len(all_users)} other users in database")
 
@@ -297,15 +447,16 @@ async def get_similar_readers_books(
                 other_embedding = lightgcn.user_emb[other_idx]
 
                 # 🔍 DIAGNOSTIC: Check embedding validity
-                user_norm = np.linalg.norm(user_embedding)
-                other_norm = np.linalg.norm(other_embedding)
-
-                similarity = np.dot(user_embedding, other_embedding) / (
-                    np.linalg.norm(user_embedding) * np.linalg.norm(other_embedding)
-                )
+                user_vector = _to_numpy_vector(user_embedding)
+                other_vector = _to_numpy_vector(other_embedding)
+                user_norm = np.linalg.norm(user_vector) if user_vector is not None else 0
+                other_norm = np.linalg.norm(other_vector) if other_vector is not None else 0
+                similarity = _safe_cosine(user_embedding, other_embedding)
+                if similarity is None:
+                    continue
 
                 similarities_calculated += 1
-                all_similarities.append(float(similarity))
+                all_similarities.append(similarity)
 
                 # 🔍 DIAGNOSTIC: Log first 5 similarities
                 if similarities_calculated <= 5:
@@ -315,7 +466,7 @@ async def get_similar_readers_books(
                     )
 
                 if similarity > similarity_threshold:
-                    similar_users.append({"user_id": other_id, "similarity": float(similarity)})
+                    similar_users.append({"user_id": other_id, "similarity": similarity})
             except Exception as e:
                 logger.debug(f"Similarity calc failed for {other_id}: {e}")
                 continue
@@ -366,22 +517,15 @@ async def get_similar_readers_books(
 
     if not top_similar:
         logger.warning(f"⚠️ No similar users found (threshold: {similarity_threshold})")
-        return {
-            "books": [],
-            "similar_user_count": 0,
-            "metadata": {
-                "similarity_threshold": similarity_threshold,
-                "total_users_checked": len(all_users),
-                "users_with_embeddings": similarities_calculated,
-                "suggestion": f"Try threshold < {similarity_threshold} (e.g., 0.3)",
-            },
-        }
+        return await _similar_readers_fallback(
+            db, user_id, limit, reason="no_users_above_similarity_threshold"
+        )
 
     # Pobierz książki które oni wypożyczyli
     similar_user_ids = [u["user_id"] for u in top_similar]
 
     similar_borrows = await db.interactions.find(
-        {"user_id": {"$in": similar_user_ids}, "interaction_type": "borrow"}
+        {"user_id": {"$in": similar_user_ids}, "interaction_type": {"$in": ["borrow", "review"]}}
     ).to_list(length=None)
 
     logger.info(f"📚 Found {len(similar_borrows)} borrows from similar users")
@@ -391,7 +535,7 @@ async def get_similar_readers_books(
 
     # Wyklucz już wypożyczone
     user_borrows = await db.interactions.find(
-        {"user_id": user_id, "interaction_type": "borrow"}
+        {"user_id": user_id, "interaction_type": {"$in": ["borrow", "review"]}}
     ).to_list(length=None)
     borrowed_book_ids = {i["book_id"] for i in user_borrows}
 
@@ -408,19 +552,13 @@ async def get_similar_readers_books(
 
     if not ranked_books:
         logger.warning("⚠️ No books after filtering")
-        return {
-            "books": [],
-            "similar_user_count": len(top_similar),
-            "metadata": {
-                "similarity_threshold": similarity_threshold,
-                "similar_users_found": len(top_similar),
-                "note": "Similar users found but no new books to recommend",
-            },
-        }
+        return await _similar_readers_fallback(
+            db, user_id, limit, reason="similar_users_have_no_new_books"
+        )
 
     # Pobierz szczegóły
     book_ids = [book_id for book_id, _ in ranked_books]
-    book_ids_obj = [ObjectId(bid) if isinstance(bid, str) else bid for bid in book_ids]
+    book_ids_obj = [_to_book_query_id(bid) for bid in book_ids]
     books = await db.books.find({"_id": {"$in": book_ids_obj}}).to_list(length=None)
 
     logger.info(f"📖 Fetched {len(books)} book details")
@@ -443,14 +581,18 @@ async def get_similar_readers_books(
 
                 if book_idx is not None:
                     book_embedding = lightgcn.item_emb[book_idx]
-                    score = np.dot(user_embedding, book_embedding) / (
-                        np.linalg.norm(user_embedding) * np.linalg.norm(book_embedding)
-                    )
-                    book["matchScore"] = float(score)
+                    score = _safe_cosine(user_embedding, book_embedding)
+                    if score is not None:
+                        book["matchScore"] = score
             except:
                 pass
 
             result_books.append(book)
+
+    if not result_books:
+        return await _similar_readers_fallback(
+            db, user_id, limit, reason="similar_reader_books_not_found"
+        )
 
     logger.info(f"✅ Returning {len(result_books)} books from {len(top_similar)} similar users")
 
@@ -458,6 +600,8 @@ async def get_similar_readers_books(
         "books": result_books,
         "similar_user_count": len(top_similar),
         "metadata": {
+            "fallback_used": False,
+            "source": "lightgcn_user_similarity",
             "similarity_threshold": similarity_threshold,
             "total_users_checked": len(all_users),
             "users_with_embeddings": similarities_calculated,

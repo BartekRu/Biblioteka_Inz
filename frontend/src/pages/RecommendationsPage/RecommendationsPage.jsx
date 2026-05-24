@@ -80,21 +80,21 @@ const RecommendationsPage = () => {
           maxPerAuthor
         ),
 
-        recommendationsAPI.getBecauseYouBorrowed(),
+        recommendationsAPI.getBecauseYouBorrowed(3, 12),
 
-        recommendationsAPI.getGenreRecommendations(2, 10),
+        recommendationsAPI.getGenreRecommendations(2, 20),
 
-        recommendationsAPI.getAuthorRecommendations(1, 10),
+        recommendationsAPI.getAuthorRecommendations(1, 20),
 
-        recommendationsAPI.getSimilarReadersBooks(),
+        recommendationsAPI.getSimilarReadersBooks(30),
 
-        recommendationsAPI.getUserLightGCN(10, 0, true, 0.3, true, maxPerAuthor),
+        recommendationsAPI.getUserLightGCN(16, 0, true, 0.3, true, maxPerAuthor),
 
-        recommendationsAPI.getNewArrivals(),
+        recommendationsAPI.getNewArrivals(40),
 
-        recommendationsAPI.getHiddenGems(),
+        recommendationsAPI.getHiddenGems(30),
 
-        recommendationsAPI.getHighlyRated(),
+        recommendationsAPI.getHighlyRated(30),
 
         recommendationsAPI.getModelMetrics(),
       ]);

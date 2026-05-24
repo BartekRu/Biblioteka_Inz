@@ -31,7 +31,7 @@ const TopRecommendations = ({ books, loading, mmrEnabled }) => {
     return null;
   }
 
-  const topBooks = books.slice(0, 8);
+  const topBooks = books.slice(0, 16);
 
   return (
     <Box sx={pageStyles.sectionContainer}>

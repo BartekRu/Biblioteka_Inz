@@ -114,7 +114,7 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
             </Box>
 
             <HorizontalBookScroll
-              books={books.slice(0, 10)}
+              books={books.slice(0, 20)}
               onBookClick={(book) => handleBookClick(book, genre)}
               showScore={true}
               showReason={false}

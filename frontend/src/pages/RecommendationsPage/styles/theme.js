@@ -53,9 +53,15 @@ export const pageStyles = {
     position: 'relative',
     mt: 2,
     mb: 7,
+    px: { xs: 2, md: 3 },
     pt: 4,
-    pb: 1,
+    pb: 3,
+    bgcolor: 'rgba(20, 36, 50, 0.72)',
     borderTop: '1px solid rgba(102, 192, 244, 0.18)',
+    borderLeft: '1px solid rgba(102, 192, 244, 0.08)',
+    borderRight: '1px solid rgba(102, 192, 244, 0.08)',
+    borderRadius: 1,
+    boxShadow: '0 10px 28px rgba(0, 0, 0, 0.18)',
   },
 };
 

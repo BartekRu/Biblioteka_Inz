@@ -28,10 +28,12 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
 
   if (!books || books.length === 0) {
     return (
-      <Alert severity="info">
+      <Box sx={pageStyles.sectionContainer}>
+        <Alert severity="info">
         <Typography>Nie znaleziono podobnych czytelników.</Typography>
         <Typography variant="caption">💡 Im więcej książek wypożyczysz, tym lepiej!</Typography>
-      </Alert>
+        </Alert>
+      </Box>
     );
   }
 
@@ -96,7 +98,7 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
       </Box>
 
       <HorizontalBookScroll
-        books={books.slice(0, 10)}
+        books={books.slice(0, 30)}
         onBookClick={handleBookClick}
         showScore={true}
         showReason={false}

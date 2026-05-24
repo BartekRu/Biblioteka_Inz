@@ -77,7 +77,7 @@ const HiddenGems = ({ books, loading }) => {
       </Box>
 
       <HorizontalBookScroll
-        books={books.slice(0, 15)}
+        books={books.slice(0, 30)}
         onBookClick={handleBookClick}
         showScore={true}
         showReason={false}

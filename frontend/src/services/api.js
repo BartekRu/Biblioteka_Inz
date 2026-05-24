@@ -72,8 +72,10 @@ export const recommendationsAPI = {
     return apiClient.get(`/v1/recommendations/similar/${bookId}?limit=${limit}`);
   },
 
-  getBecauseYouBorrowed: (limit = 3) => {
-    return apiClient.get(`/v1/recommendations/because-borrowed?limit=${limit}`);
+  getBecauseYouBorrowed: (limit = 3, booksPerSource = 12) => {
+    return apiClient.get('/v1/recommendations/because-borrowed', {
+      params: { limit, books_per_source: booksPerSource },
+    });
   },
 
   getGenreRecommendations: async (limit = 3, booksPerGenre = 10) => {

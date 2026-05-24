@@ -688,7 +688,9 @@ async def get_categories():
 
 @router.get("/because-borrowed")
 async def get_because_borrowed(
-    limit: int = Query(default=3, le=5), current_user=Depends(get_current_user)
+    limit: int = Query(default=3, le=5),
+    books_per_source: int = Query(default=12, ge=1, le=30),
+    current_user=Depends(get_current_user),
 ):
 
     db = get_database()
@@ -721,7 +723,7 @@ async def get_because_borrowed(
             continue
 
         recs = []
-        async for raw2 in db.books.find(similar_query).limit(6):
+        async for raw2 in db.books.find(similar_query).limit(books_per_source):
             b = normalize_book(serialize_doc(raw2))
 
             score = 0.5

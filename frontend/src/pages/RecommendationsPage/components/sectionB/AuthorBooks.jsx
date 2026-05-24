@@ -95,7 +95,7 @@ const AuthorBooks = ({ authorSections, loading }) => {
             </Box>
 
             <HorizontalBookScroll
-              books={books.slice(0, 10)}
+              books={books.slice(0, 20)}
               onBookClick={(book) => handleBookClick(book, author)}
               showScore={true}
               showReason={false}

@@ -89,7 +89,7 @@ const DiverseDiscovery = ({ books, diversityScore, loading }) => {
       </Box>
 
       <HorizontalBookScroll
-        books={books.slice(0, 8)}
+        books={books.slice(0, 16)}
         onBookClick={handleBookClick}
         showScore={false}
         showReason={true}
