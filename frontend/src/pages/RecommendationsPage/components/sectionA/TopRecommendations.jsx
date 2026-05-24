@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Chip, Paper, Typography } from '@mui/material';
+import { Box, Chip } from '@mui/material';
 import { AutoAwesome, Science } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
@@ -70,24 +70,6 @@ const TopRecommendations = ({ books, loading, mmrEnabled }) => {
         showReason={true}
         interactionSource="top-recommendations"
       />
-
-      <Paper
-        sx={{
-          mt: 2,
-          p: 2,
-          background: 'rgba(102, 192, 244, 0.05)',
-          border: `1px solid ${COLORS.bgMedium}`,
-          borderRadius: 1,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, display: 'block' }}>
-          💡 <strong>Jak to działa?</strong> Te rekomendacje są generowane przez model LightGCN
-          (Graph Convolutional Network), który analizuje Twoje wypożyczenia, oceny i zachowania
-          podobnych czytelników.
-          {mmrEnabled &&
-            ' Następnie algorytm MMR (Maximal Marginal Relevance) równoważy trafność z różnorodnością, aby uniknąć powtórzeń.'}
-        </Typography>
-      </Paper>
     </Box>
   );
 };

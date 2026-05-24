@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Box, Chip, Paper, Typography, Avatar } from '@mui/material';
+import { Box, Chip, Avatar } from '@mui/material';
 import { Person, AutoStories } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
@@ -44,7 +44,7 @@ const AuthorBooks = ({ authorSections, loading }) => {
 
   return (
     <>
-      {authorSections.map((section, idx) => {
+      {authorSections.slice(0, 1).map((section, idx) => {
         const { author, books } = section;
 
         if (!books || books.length === 0) return null;
@@ -101,24 +101,6 @@ const AuthorBooks = ({ authorSections, loading }) => {
               showReason={false}
               interactionSource="author-books"
             />
-
-            {idx === 0 && (
-              <Paper
-                sx={{
-                  mt: 2,
-                  p: 1.5,
-                  background: 'rgba(76, 175, 80, 0.05)',
-                  border: `1px solid ${COLORS.bgMedium}`,
-                  borderRadius: 1,
-                }}
-              >
-                <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
-                  📚 <strong>Jak to działa?</strong> Wybieramy książki tego samego autora, którego
-                  już lubisz, a następnie używamy LightGCN do spersonalizowanego rankingu - które z
-                  jego dzieł najbardziej pasują do Twojego profilu czytelniczego.
-                </Typography>
-              </Paper>
-            )}
           </Box>
         );
       })}

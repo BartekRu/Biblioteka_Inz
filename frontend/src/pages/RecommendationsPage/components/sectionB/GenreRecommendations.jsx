@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Box, Chip, Paper, Typography, Alert } from '@mui/material';
+import React from 'react';
+import { Box, Chip, Typography, Alert } from '@mui/material';
 import { Category, FilterList, Warning } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
@@ -66,7 +66,7 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
 
   return (
     <>
-      {genreSections.map((section, idx) => {
+      {genreSections.slice(0, 2).map((section, idx) => {
         const { genre, books, user_preference_score } = section;
 
         if (!genre) {
@@ -120,24 +120,6 @@ const GenreRecommendations = ({ genreSections, loading, error }) => {
               showReason={false}
               interactionSource="genre-recommendations"
             />
-
-            {idx === 0 && (
-              <Paper
-                sx={{
-                  mt: 2,
-                  p: 1.5,
-                  background: 'rgba(102, 192, 244, 0.05)',
-                  border: `1px solid ${COLORS.bgMedium}`,
-                  borderRadius: 1,
-                }}
-              >
-                <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
-                  🎯 <strong>Jak to działa?</strong> Najpierw filtrujemy książki według Twojego
-                  ulubionego gatunku, a następnie używamy embeddingów z LightGCN, aby wybrać te,
-                  które najbardziej pasują do Twojego profilu czytelniczego.
-                </Typography>
-              </Paper>
-            )}
           </Box>
         );
       })}

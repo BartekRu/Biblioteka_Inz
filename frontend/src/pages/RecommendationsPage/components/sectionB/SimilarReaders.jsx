@@ -1,6 +1,6 @@
 import React from 'react';
-import { Box, Chip, Paper, Typography, Avatar, AvatarGroup, Alert } from '@mui/material';
-import { PeopleAlt, Psychology, TrendingUp, Warning } from '@mui/icons-material';
+import { Box, Chip, Typography, Avatar, AvatarGroup, Alert } from '@mui/material';
+import { PeopleAlt, Psychology, TrendingUp } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
 import HorizontalBookScroll from '../shared/HorizontalBookScroll';
@@ -102,26 +102,6 @@ const SimilarReaders = ({ books, similarUserCount, loading }) => {
         showReason={false}
         interactionSource="similar-readers"
       />
-
-      <Paper
-        sx={{
-          mt: 2,
-          p: 2,
-          background: 'rgba(156, 39, 176, 0.05)',
-          border: `1px solid ${COLORS.bgMedium}`,
-          borderRadius: 1,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, display: 'block', mb: 1 }}>
-          👥 <strong>Jak to działa?</strong> LightGCN znajduje czytelników o podobnych gustach do
-          Twoich, analizując embeddingi użytkowników w przestrzeni ukrytej. Te książki są
-          najpopularniejsze wśród osób, które mają podobny profil czytelniczy.
-        </Typography>
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, fontStyle: 'italic' }}>
-          💡 To klasyczna filtracja kolaboracyjna oparta na użytkownikach (user-based collaborative
-          filtering), zaimplementowana przez Graf Convolutional Network.
-        </Typography>
-      </Paper>
     </Box>
   );
 };

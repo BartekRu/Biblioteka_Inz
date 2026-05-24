@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Chip, Paper, Typography, Badge } from '@mui/material';
+import { Box, Chip, Badge } from '@mui/material';
 import { AutoAwesome, TrendingDown, Star } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
@@ -83,25 +83,6 @@ const HiddenGems = ({ books, loading }) => {
         showReason={false}
         interactionSource="hidden-gems"
       />
-
-      <Paper
-        sx={{
-          mt: 2,
-          p: 2,
-          background: 'rgba(156, 39, 176, 0.05)',
-          border: `1px solid ${COLORS.bgMedium}`,
-          borderRadius: 1,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, display: 'block', mb: 1 }}>
-          💎 <strong>Jak to działa?</strong> Te książki mają mniej niż 50 wypożyczeń (niedocenione),
-          ale otrzymały wysokie oceny (≥4.0/5.0) od czytelników. Dodatkowo filtrujemy je przez Twoje
-          ulubione gatunki, żebyś odkrył perełki, które Ci się spodobają!
-        </Typography>
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, fontStyle: 'italic' }}>
-          🎯 To doskonała okazja, aby wspierać różnorodność i odkrywać autorów spoza mainstreamu!
-        </Typography>
-      </Paper>
     </Box>
   );
 };

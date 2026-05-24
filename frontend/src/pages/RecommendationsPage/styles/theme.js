@@ -50,8 +50,12 @@ export const pageStyles = {
     zIndex: 10,
   },
   sectionContainer: {
-    mb: 6,
     position: 'relative',
+    mt: 2,
+    mb: 7,
+    pt: 4,
+    pb: 1,
+    borderTop: '1px solid rgba(102, 192, 244, 0.18)',
   },
 };
 

@@ -1,10 +1,9 @@
 
 
 import React from 'react';
-import { Box, Typography, Chip, Paper } from '@mui/material';
-import { MenuBook, TrendingUp } from '@mui/icons-material';
+import { Box, Typography } from '@mui/material';
+import { MenuBook } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import SectionTitle from '../shared/SectionTitle';
 import HorizontalBookScroll from '../shared/HorizontalBookScroll';
 import LoadingSkeleton from '../shared/LoadingSkeleton';
 import { COLORS, pageStyles } from '../../styles/theme';
@@ -81,24 +80,6 @@ const BecauseYouBorrowed = ({ sections, loading }) => {
               showReason={false}
               interactionSource="because-borrowed"
             />
-
-            {idx === 0 && (
-              <Paper
-                sx={{
-                  mt: 2,
-                  p: 1.5,
-                  background: 'rgba(255, 193, 7, 0.05)',
-                  border: `1px solid ${COLORS.bgMedium}`,
-                  borderRadius: 1,
-                }}
-              >
-                <Typography variant="caption" sx={{ color: COLORS.textSecondary }}>
-                  🔬 <strong>Jak to działa?</strong> Model LightGCN tworzy wektory reprezentacji
-                  (embeddingi) dla każdej książki. Te rekomendacje mają najbliższe embeddingi w
-                  przestrzeni ukrytej modelu - oznacza to, że czytelnicy często wybierają je razem.
-                </Typography>
-              </Paper>
-            )}
           </Box>
         );
       })}

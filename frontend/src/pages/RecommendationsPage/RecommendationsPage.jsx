@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Container, Typography, Alert, Button, Divider } from '@mui/material';
-import { Refresh, Psychology } from '@mui/icons-material';
+import { Box, Container, Typography, Alert, Divider } from '@mui/material';
+import { Psychology } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useRecommendations } from '../../context/RecommendationsContext';
 import { recommendationsAPI } from '../../services/api';
 
 import { COLORS, pageStyles } from './styles/theme';
-
-import MMRControlPanel from './components/controls/MMRControlPanel';
 
 import TopRecommendations from './components/sectionA/TopRecommendations';
 
@@ -31,9 +29,9 @@ const RecommendationsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [mmrEnabled, setMmrEnabled] = useState(true);
-  const [lambdaValue, setLambdaValue] = useState(0.7);
-  const [authorLimit, setAuthorLimit] = useState(true);
+  const mmrEnabled = true;
+  const lambdaValue = 0.7;
+  const authorLimit = true;
   const maxPerAuthor = 2;
 
   const [topRecommendations, setTopRecommendations] = useState([]);
@@ -50,21 +48,6 @@ const RecommendationsPage = () => {
   const [highlyRated, setHighlyRated] = useState([]);
 
   const [modelMetrics, setModelMetrics] = useState(null);
-
-  useEffect(() => {
-    if (prevTriggerRef.current !== refreshTrigger) {
-      prevTriggerRef.current = refreshTrigger;
-      if (user) {
-        fetchAllRecommendations();
-      }
-    }
-  }, [refreshTrigger, user]);
-
-  useEffect(() => {
-    if (user) {
-      fetchAllRecommendations();
-    }
-  }, [user, mmrEnabled, lambdaValue, authorLimit]);
 
   const fetchAllRecommendations = useCallback(async () => {
     if (!user) {
@@ -99,9 +82,9 @@ const RecommendationsPage = () => {
 
         recommendationsAPI.getBecauseYouBorrowed(),
 
-        recommendationsAPI.getGenreRecommendations(),
+        recommendationsAPI.getGenreRecommendations(2, 10),
 
-        recommendationsAPI.getAuthorRecommendations(),
+        recommendationsAPI.getAuthorRecommendations(1, 10),
 
         recommendationsAPI.getSimilarReadersBooks(),
 
@@ -182,7 +165,22 @@ const RecommendationsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, navigate, mmrEnabled, lambdaValue, authorLimit]);
+  }, [user, navigate, mmrEnabled, lambdaValue, authorLimit, maxPerAuthor]);
+
+  useEffect(() => {
+    if (prevTriggerRef.current !== refreshTrigger) {
+      prevTriggerRef.current = refreshTrigger;
+      if (user) {
+        fetchAllRecommendations();
+      }
+    }
+  }, [refreshTrigger, user, fetchAllRecommendations]);
+
+  useEffect(() => {
+    if (user) {
+      fetchAllRecommendations();
+    }
+  }, [user, fetchAllRecommendations]);
 
   if (!user) {
     return null;
@@ -190,7 +188,7 @@ const RecommendationsPage = () => {
 
   return (
     <Box sx={pageStyles.mainContainer}>
-      <Container maxWidth="lg">
+      <Container maxWidth="xl" sx={{ width: '96vw' }}>
         <Box
           sx={{
             display: 'flex',
@@ -215,21 +213,6 @@ const RecommendationsPage = () => {
             </Typography>
           </Box>
 
-          <Button
-            startIcon={<Refresh />}
-            onClick={fetchAllRecommendations}
-            sx={{
-              color: COLORS.accent,
-              borderColor: COLORS.accent,
-              '&:hover': {
-                borderColor: COLORS.accentDark,
-                bgcolor: 'rgba(102, 192, 244, 0.1)',
-              },
-            }}
-            variant="outlined"
-          >
-            Odśwież
-          </Button>
         </Box>
 
         {error && (
@@ -237,18 +220,6 @@ const RecommendationsPage = () => {
             {error}
           </Alert>
         )}
-
-        <MMRControlPanel
-          mmrEnabled={mmrEnabled}
-          onMmrToggle={setMmrEnabled}
-          lambdaValue={lambdaValue}
-          onLambdaChange={setLambdaValue}
-          authorLimit={authorLimit}
-          onAuthorLimitToggle={setAuthorLimit}
-          maxPerAuthor={maxPerAuthor}
-          diversityMetrics={diversityMetrics}
-          loading={loading}
-        />
 
         <TopRecommendations books={topRecommendations} loading={loading} mmrEnabled={mmrEnabled} />
 

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Box, Chip, Paper, Typography, Badge } from '@mui/material';
-import { FiberNew, TrendingUp, Science } from '@mui/icons-material';
+import { Box, Chip, Badge } from '@mui/material';
+import { FiberNew, Science } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
 import HorizontalBookScroll from '../shared/HorizontalBookScroll';
@@ -84,25 +84,6 @@ const NewArrivals = ({ books, loading }) => {
         showReason={true}
         interactionSource="new-arrivals"
       />
-
-      <Paper
-        sx={{
-          mt: 2,
-          p: 2,
-          background: 'rgba(76, 175, 80, 0.05)',
-          border: `1px solid ${COLORS.bgMedium}`,
-          borderRadius: 1,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, display: 'block', mb: 1 }}>
-          🆕 <strong>Jak to działa?</strong> To tzw. "cold-start problem" - nowe książki nie mają
-          jeszcze historii wypożyczeń. System analizuje metadane (gatunek, autor, opis) i porównuje
-          je z Twoim profilem czytelniczym, aby znaleźć najbardziej pasujące nowości.
-        </Typography>
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, fontStyle: 'italic' }}>
-          💡 Im więcej osób wypożyczy te książki, tym lepsze będą rekomendacje oparte na LightGCN!
-        </Typography>
-      </Paper>
     </Box>
   );
 };

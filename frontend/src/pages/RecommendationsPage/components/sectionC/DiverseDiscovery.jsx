@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Chip, Paper, Typography, LinearProgress } from '@mui/material';
+import { Box, Chip, Typography, LinearProgress } from '@mui/material';
 import { Explore, Casino, AutoAwesome } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
@@ -95,26 +95,6 @@ const DiverseDiscovery = ({ books, diversityScore, loading }) => {
         showReason={true}
         interactionSource="diverse-discovery"
       />
-
-      <Paper
-        sx={{
-          mt: 2,
-          p: 2,
-          background: 'rgba(255, 87, 34, 0.05)',
-          border: `1px solid ${COLORS.bgMedium}`,
-          borderRadius: 1,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, display: 'block', mb: 1 }}>
-          🎲 <strong>Jak to działa?</strong> Ta sekcja używa algorytmu MMR (Maximal Marginal
-          Relevance) z niskim parametrem λ (około 0.3), co oznacza priorytet dla różnorodności nad
-          trafnością. Dzięki temu odkryjesz książki z różnych gatunków i autorów, których normalnie
-          byś nie zauważył.
-        </Typography>
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, fontStyle: 'italic' }}>
-          💡 To pomaga uniknąć "bańki filtrującej" i pozwala poszerzać swoje horyzonty czytelnicze!
-        </Typography>
-      </Paper>
     </Box>
   );
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Chip, Paper, Typography, LinearProgress } from '@mui/material';
+import { Box, Chip, Typography, LinearProgress } from '@mui/material';
 import { Star, TrendingUp, Verified } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import SectionTitle from '../shared/SectionTitle';
@@ -114,25 +114,6 @@ const HighlyRated = ({ books, minRating = 4.5, loading }) => {
         showReason={false}
         interactionSource="highly-rated"
       />
-
-      <Paper
-        sx={{
-          mt: 2,
-          p: 2,
-          background: 'rgba(76, 175, 80, 0.05)',
-          border: `1px solid ${COLORS.bgMedium}`,
-          borderRadius: 1,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, display: 'block', mb: 1 }}>
-          ⭐ <strong>Jak to działa?</strong> Wybieramy książki z oceną ≥{minRating}/5.0 w Twoich
-          ulubionych gatunkach, a następnie używamy LightGCN do personalizowanego rankingu.
-          Balansujemy między wysoką oceną (30%) a dopasowaniem do Twojego profilu (70%).
-        </Typography>
-        <Typography variant="caption" sx={{ color: COLORS.textSecondary, fontStyle: 'italic' }}>
-          ✅ Bezpieczny wybór - te książki spodoba się większości czytelników!
-        </Typography>
-      </Paper>
     </Box>
   );
 };
